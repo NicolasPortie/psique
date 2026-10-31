@@ -12,7 +12,6 @@ import { formatarDiaCompleto } from '../../core/formatacao/datas';
 import { capitalizar } from '../../core/formatacao/texto';
 import { AgendaDeHoje } from './components/agenda-de-hoje';
 import { Aniversarios } from './components/aniversarios';
-import { AlertasRecentes } from './components/alertas-recentes';
 import { FilaDeAtencao } from './components/fila-de-atencao';
 import { PrimeirosPassos } from './components/primeiros-passos';
 import { ProximaSessao } from './components/proxima-sessao';
@@ -41,7 +40,6 @@ export default function PainelPage() {
   }
 
   const agora = new Date();
-  const atalhos = data.acoesRapidas.filter((acao) => acao.habilitada);
   const proxima = data.proximasConsultas?.[0] ?? null;
   const semDesfecho = data.consultasSemDesfecho ?? [];
   const semConsultasHoje = data.consultasHoje.length === 0;
@@ -94,28 +92,6 @@ export default function PainelPage() {
           <Secao id="semana" painel titulo="Próximos dias" acoes={<Link to="/agenda" className="text-sm font-medium">Ver agenda</Link>}>
             <SemanaEmBarras dias={data.visaoSemana} />
           </Secao>
-
-          <Secao id="alertas" titulo="Alertas recentes" acoes={<Link to="/notificacoes" className="text-sm font-medium">Ver todos</Link>}>
-            <AlertasRecentes alertas={data.alertas} />
-          </Secao>
-
-          {atalhos.length > 0 ? (
-            <Secao id="atalhos" painel titulo="Atalhos">
-              <ul className="grid gap-1">
-                {atalhos.map((atalho) => (
-                  <li key={atalho.rota}>
-                    <Link
-                      to={atalho.rota}
-                      className="grid gap-0.5 rounded-md px-2 py-2 text-ink no-underline transition-colors duration-150 ease-out hover:bg-hover"
-                    >
-                      <span className="text-base font-medium">{atalho.titulo}</span>
-                      <span className="text-sm text-ink-muted">{atalho.descricao}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </Secao>
-          ) : null}
         </div>
       </div>
     </Pagina>

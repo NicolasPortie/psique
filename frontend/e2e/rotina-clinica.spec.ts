@@ -89,7 +89,7 @@ test.describe('Rotina clínica', () => {
     await expect(page.getByText(/^Série · /)).toBeVisible();
   });
 
-  test('busca global abre a ficha do paciente e a tela pode ser protegida', async ({ page, request }) => {
+  test('busca global abre a ficha do paciente', async ({ page, request }) => {
     const { paciente } = await prepararConta(request);
     await entrar(page, conta.email, conta.senha);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -100,10 +100,5 @@ test.describe('Rotina clínica', () => {
     await expect(page.getByRole('option', { name: new RegExp(paciente.nomeCompleto) })).toBeVisible();
     await busca.press('Enter');
     await expect(page).toHaveURL(new RegExp(`/pacientes/${paciente.id}$`));
-
-    await page.getByRole('button', { name: 'Proteger a tela' }).first().click();
-    await expect(page.getByRole('dialog', { name: 'Tela protegida' })).toBeVisible();
-    await page.getByRole('button', { name: /Voltar ao/ }).click();
-    await expect(page.getByRole('dialog', { name: 'Tela protegida' })).toBeHidden();
   });
 });

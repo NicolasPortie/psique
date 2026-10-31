@@ -1,3 +1,4 @@
+using System.Globalization;
 using Psique.Api.Data;
 using Psique.Api.DTOs.Painel;
 using Psique.Api.Services.Seguranca;
@@ -9,6 +10,8 @@ namespace Psique.Api.Services.Painel;
 
 public sealed class PainelService(AppDbContext dbContext) : IPainelService
 {
+    private static readonly CultureInfo CulturaBrasil = CultureInfo.GetCultureInfo("pt-BR");
+
     public async Task<PainelResumoResponse> ObterResumoAsync(
         Guid usuarioId,
         Guid contaPsicologoId,
@@ -219,15 +222,6 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                 consulta.LinkOnline))
             .ToListAsync(cancellationToken);
 
-        var alertas = await ObterAlertasAsync(
-            contaPsicologoId,
-            usuarioId,
-            inicioHoje,
-            fimHoje,
-            podeMensagens,
-            podeConversas,
-            cancellationToken);
-
         return new PainelResumoResponse(
             new PainelUsuarioResponse(
                 usuario.NomeCompleto,
@@ -256,7 +250,6 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                 fimSemana,
                 podeAgenda,
                 cancellationToken),
-            alertas,
             CriarPrioridades(
                 consultasAguardando,
                 pagamentosPendentes,
@@ -264,7 +257,6 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                 conversasAtendimentoHumano,
                 notificacoesNaoLidas,
                 consultasHoje.Count),
-            CriarAcoesRapidas(usuario.Perfil, podeAgenda, podePacientes, podeConversas),
             proximas,
             semDesfecho,
             await ObterAniversariantesAsync(contaPsicologoId, hoje, podePacientes, cancellationToken),
@@ -348,77 +340,6 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
             .ToArray();
     }
 
-    private async Task<IReadOnlyCollection<PainelAlertaResponse>> ObterAlertasAsync(
-        Guid contaPsicologoId,
-        Guid usuarioId,
-        DateTimeOffset inicioHoje,
-        DateTimeOffset fimHoje,
-        bool podeMensagens,
-        bool podeConversas,
-        CancellationToken cancellationToken)
-    {
-        var alertas = new List<PainelAlertaResponse>();
-
-        var lembretesFalhos = await dbContext.Lembretes
-            .AsNoTracking()
-            .Where(lembrete =>
-                podeMensagens &&
-                lembrete.ContaPsicologoId == contaPsicologoId &&
-                lembrete.Status == StatusLembrete.Falhou &&
-                lembrete.AgendadoPara >= inicioHoje &&
-                lembrete.AgendadoPara < fimHoje)
-            .OrderByDescending(lembrete => lembrete.AtualizadoEm ?? lembrete.CriadoEm)
-            .Take(2)
-            .Select(lembrete => new PainelAlertaResponse(
-                "erro",
-                "Falha de lembrete",
-                lembrete.ErroEnvio ?? "Um lembrete não foi enviado corretamente.",
-                lembrete.AtualizadoEm ?? lembrete.CriadoEm,
-                null))
-            .ToListAsync(cancellationToken);
-        alertas.AddRange(lembretesFalhos);
-
-        var conversas = await dbContext.ConversasWhatsApp
-            .AsNoTracking()
-            .Where(conversa =>
-                podeConversas &&
-                conversa.ContaPsicologoId == contaPsicologoId &&
-                conversa.AtendimentoHumanoNecessario)
-            .OrderByDescending(conversa => conversa.UltimaMensagemEm ?? conversa.CriadoEm)
-            .Take(2)
-            .Select(conversa => new PainelAlertaResponse(
-                "whatsapp",
-                "Conversa esperando uma pessoa",
-                conversa.MotivoAtendimentoHumano ??
-                "Uma conversa do WhatsApp espera uma pessoa da equipe.",
-                conversa.UltimaMensagemEm ?? conversa.CriadoEm,
-                null))
-            .ToListAsync(cancellationToken);
-        alertas.AddRange(conversas);
-
-        var notificacoes = await dbContext.Notificacoes
-            .AsNoTracking()
-            .Where(notificacao =>
-                notificacao.ContaPsicologoId == contaPsicologoId &&
-                notificacao.UsuarioId == usuarioId &&
-                !notificacao.Lida)
-            .OrderByDescending(notificacao => notificacao.CriadoEm)
-            .Take(3)
-            .Select(notificacao => new PainelAlertaResponse(
-                notificacao.Tipo,
-                notificacao.Titulo,
-                notificacao.Mensagem,
-                notificacao.CriadoEm,
-                null))
-            .ToListAsync(cancellationToken);
-        alertas.AddRange(notificacoes);
-
-        return alertas
-            .OrderByDescending(alerta => alerta.CriadoEm)
-            .Take(5)
-            .ToArray();
-    }
-
     private static IReadOnlyCollection<PainelPrioridadeResponse> CriarPrioridades(
         int consultasAguardando,
         decimal pagamentosPendentes,
@@ -437,9 +358,8 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                     conversasAtendimentoHumano,
                     "conversa do WhatsApp espera uma pessoa da equipe.",
                     "conversas do WhatsApp esperam uma pessoa da equipe."),
-                "pi-whatsapp",
                 "alerta",
-                "/integracoes/whatsapp/conversas",
+                "/conversas",
                 "Abrir conversas"));
         }
 
@@ -451,7 +371,6 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                     lembretesFalhosHoje,
                     "lembrete não foi enviado hoje.",
                     "lembretes não foram enviados hoje."),
-                "pi-send",
                 "erro",
                 "/lembretes",
                 "Revisar envios"));
@@ -465,7 +384,6 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                     consultasAguardando,
                     "consulta ainda aguarda confirmação.",
                     "consultas ainda aguardam confirmação."),
-                "pi-calendar-clock",
                 "atencao",
                 "/agenda",
                 "Ver agenda"));
@@ -475,8 +393,7 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
         {
             prioridades.Add(new PainelPrioridadeResponse(
                 "Financeiro a acompanhar",
-                "Há pagamentos pendentes vinculados ao consultório.",
-                "pi-wallet",
+                $"{pagamentosPendentes.ToString("C", CulturaBrasil)} em cobranças ainda não recebidas.",
                 "neutro",
                 "/pagamentos",
                 "Abrir financeiro"));
@@ -490,7 +407,6 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                     notificacoesNaoLidas,
                     "notificação precisa de leitura.",
                     "notificações precisam de leitura."),
-                "pi-bell",
                 "neutro",
                 "/notificacoes",
                 "Ler notificações"));
@@ -503,31 +419,12 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                 consultasHoje == 0
                     ? "Sem pendências e sem consultas registradas para hoje."
                     : "Sem pendências críticas antes dos atendimentos de hoje.",
-                "pi-check-circle",
                 "ok",
                 "/agenda",
                 "Abrir agenda"));
         }
 
         return prioridades.Take(4).ToArray();
-    }
-
-    private static IReadOnlyCollection<PainelAcaoRapidaResponse> CriarAcoesRapidas(
-        PerfilUsuario perfil,
-        bool podeAgenda,
-        bool podePacientes,
-        bool podeConversas)
-    {
-        var acoes = new List<PainelAcaoRapidaResponse>();
-        if (podeAgenda)
-            acoes.Add(new("Nova consulta", "Marque um novo atendimento.", "pi-calendar-plus", "/consultas/nova", false));
-        if (podePacientes)
-            acoes.Add(new("Cadastrar paciente", "Adicione uma pessoa ao consultório.", "pi-user-plus", "/pacientes/novo", false));
-        if (perfil == PerfilUsuario.Psicologo)
-            acoes.Add(new("Novo documento", "Crie um documento psicológico.", "pi-file-plus", "/documentos/novo", false));
-        if (podeConversas)
-            acoes.Add(new("Conversas", "Responda as mensagens recebidas pelo WhatsApp.", "pi-whatsapp", "/integracoes/whatsapp/conversas", false));
-        return acoes;
     }
 
     private static string FormatarQuantidade(int quantidade, string singular, string plural) =>

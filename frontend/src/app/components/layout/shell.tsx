@@ -4,7 +4,6 @@ import { Outlet, ScrollRestoration } from 'react-router';
 import { useTituloRota } from '../../core/use-titulo-rota';
 import { PerfilProfissionalInicial } from '../../features/dados-profissionais/perfil-profissional-inicial';
 import { BuscaGlobal } from './busca-global';
-import { CortinaPrivacidade } from './cortina-privacidade';
 import { NavegacaoMovel } from './navegacao-movel';
 import { Trilho } from './trilho';
 
@@ -60,7 +59,6 @@ export function Shell() {
         <Outlet />
       </main>
       <BuscaGlobal />
-      <CortinaPrivacidade />
       <ScrollRestoration />
     </div>
   );

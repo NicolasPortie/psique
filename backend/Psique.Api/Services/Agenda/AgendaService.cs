@@ -190,8 +190,8 @@ public sealed class AgendaService(
     private async Task<BloqueioAgenda> ObterBloqueioAsync(Guid contaId, Guid id, CancellationToken ct) => await dbContext.BloqueiosAgenda.SingleOrDefaultAsync(x => x.ContaPsicologoId == contaId && x.Id == id, ct) ?? throw new RegraNegocioException("Bloqueio de agenda não encontrado.", StatusCodes.Status404NotFound);
     private static void ValidarCanalLembrete(CanalComunicacao canal)
     {
-        if (canal is not (CanalComunicacao.Email or CanalComunicacao.Sistema))
-            throw new RegraNegocioException("Canal padrão de lembrete inválido. Utilize E-mail ou Sistema.");
+        if (canal != CanalComunicacao.Email)
+            throw new RegraNegocioException("Os lembretes automáticos são enviados por e-mail.");
     }
 
     private static string? Limpar(string? valor) => string.IsNullOrWhiteSpace(valor) ? null : valor.Trim();

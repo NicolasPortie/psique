@@ -10,10 +10,8 @@ import { Botao } from '../../components/ui/botao';
 import { EstadoRotulado } from '../../components/ui/marca-estado';
 import { MenuAcoes } from '../../components/ui/menu';
 import { CabecalhoTabela, CelulaTabela, ColunaTabela, LinhaTabela, Tabela } from '../../components/ui/tabela';
-import { rotuloDe } from '../../core/dominio/estado';
 import { mensagemDeErro } from '../../core/erros/mensagem-de-erro';
-import { estadoAtivo, rotulosCanal } from '../agenda/agenda.rotulos';
-import { rotulosTipoLembrete } from '../lembretes/lembretes.rotulos';
+import { estadoAtivo } from '../agenda/agenda.rotulos';
 import { GavetaModelo } from './components/gaveta-modelo';
 import { alterarAtivoModelo, listarModelosMensagem, modelosKeys, type ModeloMensagem } from './modelos-mensagem.api';
 
@@ -37,7 +35,7 @@ export default function ModelosMensagemPage() {
     <Pagina largura="ampla" className="gap-6">
       <CabecalhoPagina
         titulo="Modelos de mensagem"
-        descricao="Textos reutilizáveis para confirmações, lembretes e avisos administrativos."
+        descricao="O texto do e-mail de lembrete enviado antes da consulta. Vale o modelo ativo editado por último."
         acoes={
           <Botao variante="primario" onClick={() => setEdicao({ modelo: null })}>
             <Plus size={16} aria-hidden="true" />
@@ -54,7 +52,7 @@ export default function ModelosMensagemPage() {
         <EstadoVazio
           icone={MessageSquareText}
           titulo="Nenhum modelo cadastrado"
-          descricao="Crie modelos com variáveis como o nome do paciente e o horário, para enviar mensagens consistentes."
+          descricao="Sem modelo, o lembrete sai com um texto padrão. Crie o seu com variáveis como o nome do paciente e o horário."
           acao={
             <Botao variante="secundario" onClick={() => setEdicao({ modelo: null })}>
               Criar o primeiro modelo
@@ -66,8 +64,6 @@ export default function ModelosMensagemPage() {
           <CabecalhoTabela>
             <tr>
               <ColunaTabela>Modelo</ColunaTabela>
-              <ColunaTabela ocultarAte="sm">Tipo</ColunaTabela>
-              <ColunaTabela ocultarAte="md">Canal</ColunaTabela>
               <ColunaTabela>Estado</ColunaTabela>
               <ColunaTabela className="w-px">
                 <span className="sr-only">Ações</span>
@@ -80,12 +76,6 @@ export default function ModelosMensagemPage() {
                 <CelulaTabela>
                   <span className="block font-medium text-ink">{modelo.nome}</span>
                   <span className="block max-w-md truncate text-sm text-ink-muted">{modelo.conteudo}</span>
-                </CelulaTabela>
-                <CelulaTabela ocultarAte="sm" className="text-ink-muted">
-                  {rotuloDe(rotulosTipoLembrete, modelo.tipo)}
-                </CelulaTabela>
-                <CelulaTabela ocultarAte="md" className="text-ink-muted">
-                  {rotuloDe(rotulosCanal, modelo.canal)}
                 </CelulaTabela>
                 <CelulaTabela>
                   <EstadoRotulado estado={estadoAtivo(modelo.ativo)} compacto />

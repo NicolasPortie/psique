@@ -195,10 +195,9 @@ Na chegada, as duas metades da marca se encontram em 280 ms; a foto abre por `cl
 - `Painel destaque` (fundo `accent-wash`, régua `accent-line`) é reservado a uma coisa por tela: a próxima sessão no Hoje.
 - Totais (financeiro, mês em números) são uma régua de células no mesmo painel, nunca cartões soltos; no celular viram linhas rótulo/valor.
 
-### Busca global e cortina de privacidade
+### Busca global
 
 - `BuscaGlobal`: diálogo no topo (12% da altura), 36 rem de largura, cantos de 20 px; combobox com lista de opções, setas e Enter. Entra com opacidade e escala 0,98 em 160 ms.
-- `CortinaPrivacidade`: tela inteira em `paper`, marca, cadeado em `accent-wash` e um único botão para voltar. Esmaece em 200 ms; com movimento reduzido, aparece sem transição. Nunca mostra conteúdo por trás.
 
 ### Sobreposições (`Dialogo`, `Gaveta`, `Confirmacao`, `MenuAcoes`, `Dica`)
 

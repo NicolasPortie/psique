@@ -23,9 +23,7 @@ export interface PainelResumo {
     podeRegistrarSessao: boolean;
   }>;
   visaoSemana: Array<{ data: string; rotulo: string; consultas: number }>;
-  alertas: Array<{ tipo: string; titulo: string; mensagem: string; criadoEm: string; rota: string | null }>;
-  prioridades: Array<{ titulo: string; mensagem: string; icone: string; tom: 'alerta' | 'erro' | 'atencao' | 'neutro' | 'ok'; rota: string; acao: string }>;
-  acoesRapidas: Array<{ titulo: string; descricao: string; icone: string; rota: string; habilitada: boolean }>;
+  prioridades: Array<{ titulo: string; mensagem: string; tom: 'alerta' | 'erro' | 'atencao' | 'neutro' | 'ok'; rota: string; acao: string }>;
   /** As próximas consultas em aberto, mesmo de outros dias (para "próxima sessão" no fim de semana). */
   proximasConsultas?: PainelConsulta[] | null;
   /** Consultas que já terminaram sem desfecho (nem realizada, nem falta, nem cancelada), dos últimos 60 dias. */

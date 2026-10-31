@@ -12,8 +12,8 @@ import { Botao } from '../../../components/ui/botao';
 import { Campo, Entrada, OpcaoMarcavel, Selecao } from '../../../components/ui/campo';
 import { mensagemDeErro } from '../../../core/erros/mensagem-de-erro';
 import { agendaKeys, obterConfiguracaoAgenda, salvarConfiguracaoAgenda } from '../agenda.api';
-import { canaisLembreteAutomatico, fusosHorarios, rotulosCanal } from '../agenda.rotulos';
-import type { CanalComunicacao, ConfiguracaoAtendimento } from '../agenda.types';
+import { fusosHorarios } from '../agenda.rotulos';
+import type { ConfiguracaoAtendimento } from '../agenda.types';
 
 const schema = z.object({
   fusoHorario: z.string().min(3, 'Selecione o fuso horário.'),
@@ -27,7 +27,6 @@ const schema = z.object({
   programarLembreteAoCriarConsulta: z.boolean(),
   programarLembreteAoConfirmar: z.boolean(),
   antecedenciaLembreteHoras: z.string().min(1, 'Informe a antecedência.'),
-  canalLembretePadrao: z.enum(['WhatsApp', 'Email', 'Sms', 'Sistema', 'Telefone']),
   cobrarAoRealizar: z.boolean(),
   cobrarFalta: z.boolean(),
 });
@@ -52,7 +51,6 @@ function paraFormulario(config: ConfiguracaoAtendimento): Formulario {
     programarLembreteAoCriarConsulta: config.programarLembreteAoCriarConsulta,
     programarLembreteAoConfirmar: config.programarLembreteAoConfirmar,
     antecedenciaLembreteHoras: String(config.antecedenciaLembreteHoras),
-    canalLembretePadrao: config.canalLembretePadrao,
     cobrarAoRealizar: config.cobrarAoRealizar ?? true,
     cobrarFalta: config.cobrarFalta ?? false,
   };
@@ -71,7 +69,8 @@ function paraRequisicao(valores: Formulario): ConfiguracaoAtendimento {
     programarLembreteAoCriarConsulta: valores.programarLembreteAoCriarConsulta,
     programarLembreteAoConfirmar: valores.programarLembreteAoConfirmar,
     antecedenciaLembreteHoras: Number(valores.antecedenciaLembreteHoras),
-    canalLembretePadrao: valores.canalLembretePadrao,
+    // Lembrete automático sai por e-mail; é o único canal que a API entrega sem uma conversa aberta.
+    canalLembretePadrao: 'Email',
     cobrarAoRealizar: valores.cobrarAoRealizar,
     cobrarFalta: valores.cobrarFalta,
   };
@@ -105,8 +104,6 @@ export function RegrasAgenda() {
 
   const lembretesAtivos = useWatch({ control, name: 'lembretesAutomaticosAtivos' });
   const cobrarAoRealizar = useWatch({ control, name: 'cobrarAoRealizar' });
-  const canalAtual: CanalComunicacao = useWatch({ control, name: 'canalLembretePadrao' }) ?? config?.canalLembretePadrao ?? 'Email';
-  const canais = Array.from(new Set<CanalComunicacao>([...canaisLembreteAutomatico, canalAtual]));
 
   if (configQuery.isPending) return <CarregandoPagina rotulo="Carregando as regras…" />;
   if (configQuery.error && !config) {
@@ -161,7 +158,7 @@ export function RegrasAgenda() {
         </div>
       </Secao>
 
-      <Secao titulo="Lembretes" painel descricao="Mensagens de lembrete enviadas ao paciente antes da consulta.">
+      <Secao titulo="Lembretes" painel descricao="E-mail enviado ao paciente antes da consulta, com o texto de Modelos de mensagem.">
         <div className="grid gap-4">
           <OpcaoMarcavel tipo="interruptor" rotulo="Enviar lembretes automáticos" {...register('lembretesAutomaticosAtivos')} />
           <div className={lembretesAtivos ? 'grid gap-4' : 'pointer-events-none grid gap-4 opacity-50'} aria-disabled={!lembretesAtivos}>
@@ -170,13 +167,6 @@ export function RegrasAgenda() {
             <div className="grid gap-4 sm:grid-cols-2">
               <Campo rotulo="Antecedência do lembrete" dica="Horas antes da consulta." erro={errors.antecedenciaLembreteHoras?.message}>
                 <Entrada type="number" inputMode="numeric" min="0" disabled={!lembretesAtivos} {...register('antecedenciaLembreteHoras')} />
-              </Campo>
-              <Campo rotulo="Canal padrão" dica="WhatsApp depende de uma conversa ativa e é enviado por Conversas.">
-                <Selecao
-                  disabled={!lembretesAtivos}
-                  opcoes={canais.map((canal) => ({ valor: canal, rotulo: rotulosCanal[canal] }))}
-                  {...register('canalLembretePadrao')}
-                />
               </Campo>
             </div>
           </div>

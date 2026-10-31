@@ -249,27 +249,6 @@
   }
 }
 
-/* ---- Cortina de privacidade ------------------------------------------------- */
-
-.cortina-privacidade {
-  transition: opacity 200ms var(--ease-out);
-}
-
-.cortina-privacidade[data-starting-style],
-.cortina-privacidade[data-ending-style] {
-  opacity: 0;
-}
-
-.cortina-privacidade[data-ending-style] {
-  transition-duration: 140ms;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cortina-privacidade {
-    transition-duration: 0ms;
-  }
-}
-
 /* ---- Busca global ------------------------------------------------------------ */
 
 .busca-global {

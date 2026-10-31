@@ -45,7 +45,6 @@ A recepção nunca vê conteúdo clínico: prontuário e documentos mostram "ace
 - **Financeiro**: navegação por mês (ou todo o período), busca por paciente, totais recebido/a receber/vencido, filtro "Vencidos", "Receber" com a forma de pagamento e "Emitir recibo" para o que foi recebido.
 - **Agenda (desktop)**: visões Dia, Semana e Mês (`?visao=`); arrastar uma consulta em aberto para outro horário abre a confirmação de remarcação com data e hora preenchidas; consultas de série mostram o ícone de repetição.
 - **Busca global**: o campo "Buscar paciente" do trilho (a lupa no celular), sem atalho de teclado; pacientes ativos pelo nome, telefone ou e-mail, áreas do menu e ações comuns.
-- **Cortina de privacidade**: o ícone do olho no topo, Alt+Shift+P ou inatividade (10 minutos, ajustável em Conta e segurança) cobrem a tela inteira até alguém voltar.
 - **Hoje**: "Primeiros passos" para a conta nova (dispensável) e "Aniversários da semana".
 - **Pacientes**: filtro "Só quem não vem há mais de 30 dias"; no celular, a próxima consulta aparece sob o nome.
 - **Ficha**: forma de cobrança (por sessão ou mensalidade), consentimento LGPD, exportação dos dados do paciente e recibo do mês.

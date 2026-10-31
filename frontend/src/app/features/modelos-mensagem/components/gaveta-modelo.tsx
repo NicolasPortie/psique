@@ -8,12 +8,9 @@ import { z } from 'zod';
 import { Aviso } from '../../../components/feedback/aviso';
 import { notificar } from '../../../components/feedback/notificar';
 import { Botao } from '../../../components/ui/botao';
-import { AreaTexto, Campo, Entrada, OpcaoMarcavel, Selecao } from '../../../components/ui/campo';
+import { AreaTexto, Campo, Entrada, OpcaoMarcavel } from '../../../components/ui/campo';
 import { Gaveta } from '../../../components/ui/dialogo';
-import { paraOpcoes } from '../../../core/dominio/estado';
 import { mensagemDeErro } from '../../../core/erros/mensagem-de-erro';
-import { rotulosCanal } from '../../agenda/agenda.rotulos';
-import { rotulosTipoLembrete } from '../../lembretes/lembretes.rotulos';
 import {
   atualizarModeloMensagem,
   criarModeloMensagem,
@@ -27,19 +24,19 @@ import {
 const tipos = ['LembreteConsulta', 'ConfirmacaoConsulta', 'CancelamentoConsulta', 'RemarcacaoConsulta', 'PagamentoPendente'] as const;
 const canais = ['Email', 'WhatsApp', 'Sms', 'Sistema', 'Telefone'] as const;
 
-const schema = z.object({
-  nome: z.string().trim().min(2, 'Informe o nome do modelo.'),
-  tipo: z.enum(tipos),
-  canal: z.enum(canais),
-  assunto: z.string(),
-  conteudo: z.string().trim().min(1, 'Escreva o conteúdo da mensagem.'),
-  ativo: z.boolean(),
-});
+const schema = z
+  .object({
+    nome: z.string().trim().min(2, 'Informe o nome do modelo.'),
+    tipo: z.enum(tipos),
+    canal: z.enum(canais),
+    assunto: z.string(),
+    conteudo: z.string().trim().min(1, 'Escreva o conteúdo da mensagem.'),
+    ativo: z.boolean(),
+  })
+  .refine((dados) => dados.canal !== 'Email' || dados.assunto.trim().length > 0, { path: ['assunto'], message: 'Informe o assunto do e-mail.' });
 type Formulario = z.infer<typeof schema>;
 
 const iniciais: Formulario = { nome: '', tipo: 'LembreteConsulta', canal: 'Email', assunto: '', conteudo: '', ativo: true };
-const opcoesTipo = paraOpcoes(rotulosTipoLembrete);
-const opcoesCanal = paraOpcoes(rotulosCanal);
 
 function paraFormulario(modelo: ModeloMensagem): Formulario {
   return {
@@ -134,7 +131,7 @@ export function GavetaModelo({ modelo, aberto, aoMudar }: GavetaModeloProps) {
       aoMudar={aoMudar}
       largura="34rem"
       titulo={modelo ? 'Editar modelo' : 'Novo modelo de mensagem'}
-      descricao="Textos reutilizáveis para lembretes e comunicações administrativas."
+      descricao="O texto do e-mail de lembrete que o paciente recebe antes da consulta."
       rodape={
         <>
           <Botao variante="secundario" onClick={() => aoMudar(false)}>
@@ -155,17 +152,9 @@ export function GavetaModelo({ modelo, aberto, aoMudar }: GavetaModeloProps) {
         <Campo rotulo="Nome" erro={errors.nome?.message}>
           <Entrada placeholder="Ex.: Lembrete de consulta" {...register('nome')} />
         </Campo>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Campo rotulo="Tipo de mensagem">
-            <Selecao opcoes={opcoesTipo} {...register('tipo')} />
-          </Campo>
-          <Campo rotulo="Canal">
-            <Selecao opcoes={opcoesCanal} {...register('canal')} />
-          </Campo>
-        </div>
         {canal === 'Email' ? (
-          <Campo rotulo="Assunto do e-mail" opcional>
-            <Entrada {...register('assunto')} />
+          <Campo rotulo="Assunto do e-mail" erro={errors.assunto?.message}>
+            <Entrada placeholder="Ex.: Lembrete da sua consulta" {...register('assunto')} />
           </Campo>
         ) : null}
         <Campo rotulo="Mensagem" erro={errors.conteudo?.message}>

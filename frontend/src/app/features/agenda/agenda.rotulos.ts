@@ -22,8 +22,6 @@ export const estadoAtivo = (ativo: boolean): DescricaoEstado =>
   ativo ? { rotulo: 'Ativo', tom: 'sucesso', marca: 'cheio' } : { rotulo: 'Inativo', tom: 'neutro', marca: 'anel' };
 
 /** Canais que o backend aceita para lembretes automáticos (a API valida e rejeita os demais). */
-export const canaisLembreteAutomatico: CanalComunicacao[] = ['Email', 'Sistema'];
-
 /** Consultas que ainda ocupam o horário (para destaque visual e contagens de apresentação). */
 export const consultaAtiva = (status: StatusConsulta) =>
   status === 'Agendada' || status === 'AguardandoConfirmacao' || status === 'Confirmada';

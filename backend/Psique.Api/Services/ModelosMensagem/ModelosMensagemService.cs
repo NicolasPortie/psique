@@ -17,10 +17,16 @@ public sealed partial class ModelosMensagemService(
     IAuditoriaService auditoria,
     IModeloMensagemTemplateService templateService) : IModelosMensagemService
 {
+    // O lembrete automático por e-mail é o único envio que usa modelos hoje; aceitar outros tipos ou canais
+    // deixaria o psicólogo escrever textos que nunca saem.
     private static readonly HashSet<CanalComunicacao> CanaisOperacionais =
     [
-        CanalComunicacao.Email,
-        CanalComunicacao.Sistema
+        CanalComunicacao.Email
+    ];
+
+    private static readonly HashSet<TipoLembrete> TiposOperacionais =
+    [
+        TipoLembrete.LembreteConsulta
     ];
 
     public async Task<IReadOnlyCollection<ModeloMensagemResponse>> ListarAsync(
@@ -82,6 +88,7 @@ public sealed partial class ModelosMensagemService(
         CancellationToken cancellationToken)
     {
         await autorizacao.ObterUsuarioAtivoAsync(usuarioId, contaId, cancellationToken);
+        ValidarTipo(request.Tipo);
         ValidarCanal(request.Canal);
         ValidarAssunto(request.Canal, request.Assunto);
         templateService.ValidarConteudo(request.Conteudo, request.Assunto);
@@ -134,6 +141,7 @@ public sealed partial class ModelosMensagemService(
         CancellationToken cancellationToken)
     {
         await autorizacao.ObterUsuarioAtivoAsync(usuarioId, contaId, cancellationToken);
+        ValidarTipo(request.Tipo);
         ValidarCanal(request.Canal);
         ValidarAssunto(request.Canal, request.Assunto);
         templateService.ValidarConteudo(request.Conteudo, request.Assunto);
@@ -356,7 +364,13 @@ public sealed partial class ModelosMensagemService(
     private static void ValidarCanal(CanalComunicacao canal)
     {
         if (!CanaisOperacionais.Contains(canal))
-            throw new RegraNegocioException("Canal não disponível nesta etapa. Utilize E-mail ou Sistema.");
+            throw new RegraNegocioException("Por enquanto, os modelos de mensagem são enviados por e-mail.");
+    }
+
+    private static void ValidarTipo(TipoLembrete tipo)
+    {
+        if (!TiposOperacionais.Contains(tipo))
+            throw new RegraNegocioException("Por enquanto, só o lembrete de consulta usa modelos de mensagem.");
     }
 
     private static void ValidarAssunto(CanalComunicacao canal, string? assunto)

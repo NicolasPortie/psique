@@ -11,7 +11,6 @@ import { Gaveta } from '../ui/dialogo';
 import { useAcoesUsuario } from './acoes-usuario';
 import { LinkNavegacao } from './link-navegacao';
 import { BotaoBuscaGlobal } from './busca-global';
-import { BotaoProtegerTela } from './cortina-privacidade';
 import { Marca } from './marca';
 import { gruposPermitidos, gruposNavegacao, itemPermitido, rotasBarraInferior } from './navegacao';
 import { SinoNotificacoes } from './sino-notificacoes';
@@ -49,7 +48,6 @@ export function NavegacaoMovel() {
         </Link>
         <span className="flex items-center gap-1">
           <BotaoBuscaGlobal compacto />
-          <BotaoProtegerTela />
           <SinoNotificacoes />
         </span>
       </header>

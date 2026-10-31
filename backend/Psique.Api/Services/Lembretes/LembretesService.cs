@@ -28,7 +28,6 @@ public sealed class LembretesService(
     private static readonly HashSet<CanalComunicacao> CanaisOperacionais =
     [
         CanalComunicacao.Email,
-        CanalComunicacao.Sistema,
         CanalComunicacao.WhatsApp
     ];
 
@@ -365,7 +364,7 @@ public sealed class LembretesService(
             return null;
 
         var canal = configuracao.CanalLembretePadrao;
-        if (canal is not (CanalComunicacao.Email or CanalComunicacao.Sistema or CanalComunicacao.WhatsApp))
+        if (canal is not (CanalComunicacao.Email or CanalComunicacao.WhatsApp))
             canal = CanalComunicacao.Email;
 
         var consulta = await dbContext.Consultas
@@ -689,15 +688,6 @@ public sealed class LembretesService(
         if (lembrete.Status != StatusLembrete.Agendado)
             return;
 
-        if (lembrete.Canal == CanalComunicacao.Sistema)
-        {
-            // Canal interno: permanece programado até a infraestrutura de notificações (Fase 3).
-            lembrete.ErroEnvio = null;
-            lembrete.AtualizadoEm = DateTimeOffset.UtcNow;
-            await dbContext.SaveChangesAsync(cancellationToken);
-            return;
-        }
-
         if (lembrete.Canal == CanalComunicacao.WhatsApp)
         {
             await TentarEntregarWhatsAppAsync(lembrete, consulta, usuarioId, ip, userAgent, cancellationToken);
@@ -901,7 +891,7 @@ public sealed class LembretesService(
     private static void ValidarCanal(CanalComunicacao canal)
     {
         if (!CanaisOperacionais.Contains(canal))
-            throw new RegraNegocioException("Canal não disponível nesta etapa. Utilize E-mail, Sistema ou WhatsApp.");
+            throw new RegraNegocioException("Canal não disponível nesta etapa. Utilize E-mail ou WhatsApp.");
     }
 
     private static void ValidarPeriodo(FiltroLembreteRequest filtro)

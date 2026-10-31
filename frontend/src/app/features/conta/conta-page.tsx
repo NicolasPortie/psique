@@ -7,7 +7,6 @@ import { z } from 'zod';
 import { Aviso } from '../../components/feedback/aviso';
 import { notificar } from '../../components/feedback/notificar';
 import { CabecalhoPagina, Pagina, Secao } from '../../components/layout/pagina';
-import { PrivacidadeTela } from './privacidade-tela';
 import { Botao } from '../../components/ui/botao';
 import { Campo, Entrada } from '../../components/ui/campo';
 import { Dado, Ficha } from '../../components/ui/lista';
@@ -90,8 +89,6 @@ export default function ContaPage() {
           </div>
         </form>
       </Secao>
-
-      <PrivacidadeTela />
     </Pagina>
   );
 }

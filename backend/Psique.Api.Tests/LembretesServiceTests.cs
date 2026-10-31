@@ -375,10 +375,10 @@ public sealed class LembretesServiceTests
             cenario.ContaId,
             new CriarModeloMensagemRequest
             {
-                Nome = "Confirmação",
-                Tipo = TipoLembrete.ConfirmacaoConsulta,
+                Nome = "Lembrete",
+                Tipo = TipoLembrete.LembreteConsulta,
                 Canal = CanalComunicacao.Email,
-                Assunto = "Confirmação",
+                Assunto = "Lembrete",
                 Conteudo = "Olá, {{nome_paciente}}",
                 Ativo = true
             },
@@ -387,6 +387,37 @@ public sealed class LembretesServiceTests
             CancellationToken.None);
 
         Assert.Contains(auditoria.Registros, item => item.TipoAcao == "ModeloMensagemCriado");
+    }
+
+    [Theory]
+    [InlineData(TipoLembrete.ConfirmacaoConsulta, CanalComunicacao.Email)]
+    [InlineData(TipoLembrete.LembreteConsulta, CanalComunicacao.Sistema)]
+    [InlineData(TipoLembrete.LembreteConsulta, CanalComunicacao.Sms)]
+    public async Task CriarModelo_ParaEnvioQueNaoExiste_DeveBloquear(TipoLembrete tipo, CanalComunicacao canal)
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        var service = new ModelosMensagemService(
+            contexto,
+            new AutorizacaoContaService(contexto),
+            new AuditoriaCaptura(),
+            new ModeloMensagemTemplateService());
+
+        await Assert.ThrowsAsync<RegraNegocioException>(() => service.CriarAsync(
+            cenario.UsuarioId,
+            cenario.ContaId,
+            new CriarModeloMensagemRequest
+            {
+                Nome = "Modelo sem envio",
+                Tipo = tipo,
+                Canal = canal,
+                Assunto = "Assunto",
+                Conteudo = "Olá, {{nome_paciente}}",
+                Ativo = true
+            },
+            null,
+            null,
+            CancellationToken.None));
     }
 
     [Fact]
@@ -402,9 +433,10 @@ public sealed class LembretesServiceTests
             new CriarLembreteRequest
             {
                 ConsultaId = cenario.Consulta.Id,
-                Canal = CanalComunicacao.Sistema,
+                Canal = CanalComunicacao.Email,
                 Tipo = TipoLembrete.LembreteConsulta,
                 AgendadoPara = DateTimeOffset.UtcNow.AddHours(3),
+                Assunto = "Lembrete de consulta",
                 Mensagem = "Olá, {{nome_paciente}}. Consulta em {{data_consulta}}."
             },
             null,

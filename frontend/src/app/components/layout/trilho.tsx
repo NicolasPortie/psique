@@ -6,7 +6,6 @@ import { MARCA } from '../../core/marca';
 import { rotuloPerfil } from '../../core/dominio/perfil';
 import { Avatar } from '../ui/avatar';
 import { BotaoBuscaGlobal } from './busca-global';
-import { BotaoProtegerTela } from './cortina-privacidade';
 import { cn } from '../ui/cn';
 import { Dica } from '../ui/dica';
 import { MenuAcoes } from '../ui/menu';
@@ -47,10 +46,7 @@ export function Trilho({ recolhido, aoAlternar }: TrilhoProps) {
           <Marca somenteSimbolo={recolhido} />
         </Link>
         {recolhido ? null : (
-          <span className="flex items-center">
-            <BotaoProtegerTela />
-            <SinoNotificacoes />
-          </span>
+          <SinoNotificacoes />
         )}
       </div>
 
@@ -61,7 +57,6 @@ export function Trilho({ recolhido, aoAlternar }: TrilhoProps) {
         {recolhido ? (
           <div className="mb-3 grid justify-center gap-1">
             <BotaoBuscaGlobal compacto />
-            <BotaoProtegerTela />
             <SinoNotificacoes />
           </div>
         ) : (
