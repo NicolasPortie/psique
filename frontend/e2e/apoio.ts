@@ -23,7 +23,7 @@ export async function chamarApi(request: APIRequestContext, metodo: string, cami
 export async function garantirConta(request: APIRequestContext, conta: { nomeCompleto: string; email: string; crp: string; senha: string }) {
   const solicitacao = await chamarApi(request, 'POST', '/autenticacao/cadastro/codigo', undefined, { email: conta.email });
   if (!solicitacao.ok()) {
-    if ([400, 409, 422, 429].includes(solicitacao.status())) return;
+    if ([400, 409, 422, 429].includes(solicitacao.status())) return completarPerfilProfissional(request, conta);
     throw new Error(`Pedido de código de teste falhou (${solicitacao.status()}): ${await solicitacao.text()}`);
   }
   const { identificador } = (await solicitacao.json()).dados as { identificador: string };
@@ -38,6 +38,22 @@ export async function garantirConta(request: APIRequestContext, conta: { nomeCom
   if (!resposta.ok() && ![400, 409, 422, 429].includes(resposta.status())) {
     throw new Error(`Cadastro de teste falhou (${resposta.status()}): ${await resposta.text()}`);
   }
+  await completarPerfilProfissional(request, conta);
+}
+
+/**
+ * Conta recém-criada abre o convite "Complete seu perfil profissional" sobre as telas. As suítes partem de
+ * uma conta já configurada; o convite em si é coberto por `perfil-profissional-inicial.spec.ts`.
+ */
+async function completarPerfilProfissional(request: APIRequestContext, conta: { nomeCompleto: string; email: string; crp: string; senha: string }) {
+  // Sem login (senha trocada por uma execução interrompida), quem restaura a senha completa depois.
+  const sessao = await chamarApi(request, 'POST', '/autenticacao/login', undefined, { email: conta.email, senha: conta.senha });
+  if (!sessao.ok()) return;
+  const token = ((await sessao.json()).dados as { accessToken: string }).accessToken;
+  const situacao = await chamarApi(request, 'GET', '/dados-profissionais/situacao', token);
+  if (situacao.ok() && !((await situacao.json()).dados as { pendente: boolean }).pendente) return;
+  const salvo = await chamarApi(request, 'PUT', '/dados-profissionais', token, { nomeProfissional: conta.nomeCompleto, crp: conta.crp });
+  if (!salvo.ok()) throw new Error(`Perfil profissional de teste falhou (${salvo.status()}): ${await salvo.text()}`);
 }
 
 export async function loginApi(request: APIRequestContext, email: string, senha: string) {

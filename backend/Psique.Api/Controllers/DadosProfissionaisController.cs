@@ -21,14 +21,10 @@ public sealed class DadosProfissionaisController(IDadosProfissionaisService dado
         return NoContent();
     }
 
+    /// <summary>Conta nova ainda sem perfil responde 200 com <c>dados: null</c>: falta preencher, não é erro.</summary>
     [HttpGet]
-    public async Task<IActionResult> Obter(CancellationToken ct)
-    {
-        var dados = await dadosService.ObterAsync(ObterUsuarioId(), ObterContaPsicologoId(), ct);
-        return dados is null
-            ? NotFound(RespostaApi<object>.ComErro("Dados profissionais não cadastrados."))
-            : Ok(RespostaApi<DadosProfissionaisResponse>.ComSucesso(dados));
-    }
+    public async Task<IActionResult> Obter(CancellationToken ct) =>
+        Ok(RespostaApi<DadosProfissionaisResponse?>.ComSucesso(await dadosService.ObterAsync(ObterUsuarioId(), ObterContaPsicologoId(), ct)));
 
     [HttpPut]
     public async Task<IActionResult> Salvar(SalvarDadosProfissionaisRequest request, CancellationToken ct) => Ok(RespostaApi<DadosProfissionaisResponse>.ComSucesso(await dadosService.SalvarAsync(ObterUsuarioId(), ObterContaPsicologoId(), request, ObterIp(), ObterUserAgent(), ct)));

@@ -129,15 +129,15 @@ test.describe('Conta e documentos legais', () => {
       senha: senhaPadrao,
     };
     const novaSenha = 'NovaSenhaSegura456!';
-    await garantirConta(request, conta);
     await restaurarSenhaPadrao(request, conta.email, novaSenha, conta.senha);
+    await garantirConta(request, conta);
 
     // Uma segunda sessão (outro dispositivo) que deve ser encerrada pela troca.
     const outraSessao = await chamarApi(request, 'POST', '/autenticacao/login', undefined, {
       email: conta.email,
       senha: conta.senha,
     });
-    expect(outraSessao.ok()).toBeTruthy();
+    expect(outraSessao.ok(), `Login da segunda sessão: ${outraSessao.status()} ${await outraSessao.text()}`).toBeTruthy();
     const tokenAntigo = ((await outraSessao.json()).dados as { accessToken: string }).accessToken;
 
     await entrar(page, conta.email, conta.senha);

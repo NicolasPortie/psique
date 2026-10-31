@@ -40,14 +40,11 @@ export async function adiarPerfilProfissional() {
   await requisicaoApi<void>('/dados-profissionais/adiar', { method: 'POST', body: {} });
 }
 
+/** Conta ainda sem perfil: a API responde com `dados: null`. */
 export async function obterDadosProfissionais({ signal }: { signal?: AbortSignal } = {}) {
-  try {
-    const resposta = await requisicaoApi<RespostaApi<DadosProfissionais>>('/dados-profissionais', { signal });
-    return extrairDados(resposta, 'Não foi possível carregar os dados profissionais.');
-  } catch (erro) {
-    if (erro instanceof ErroApi && erro.status === 404) return null;
-    throw erro;
-  }
+  const resposta = await requisicaoApi<RespostaApi<DadosProfissionais | null>>('/dados-profissionais', { signal });
+  if (!resposta.sucesso) throw new ErroApi(resposta.mensagem ?? 'Não foi possível carregar os dados profissionais.', 422, resposta.erros ?? []);
+  return resposta.dados ?? null;
 }
 
 export async function salvarDadosProfissionais(request: SalvarDadosProfissionaisRequest) {
