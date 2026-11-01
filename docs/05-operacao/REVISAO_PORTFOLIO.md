@@ -40,6 +40,15 @@ portal do paciente e integrações financeiras continuam identificados como futu
 
 ## Publicação
 
+A auditoria executada no Actions identificou alertas de alta severidade nas
+versões anteriores de Zod e undici. O lockfile foi atualizado sem `--force`;
+lint, build e os 153 testes do front-end passaram novamente. A auditoria permanece
+ativa no CI. Ainda existem alertas moderados transitivos no minimatch utilizado
+pelas ferramentas ESLint/TypeScript ESLint. A correção publicada do minimatch
+está em outra versão principal e não foi imposta por override a consumidores de
+APIs antigas. Não afirmar que o repositório possui zero alertas de dependências.
+Referência: [aviso do minimatch](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+
 A publicação não inclui `.env`, certificados, bancos, logs, artefatos de teste,
 dependências instaladas ou o projeto independente `video-divulgacao/`.
 O vídeo independente foi preservado no workspace; os GIFs e imagens do README
