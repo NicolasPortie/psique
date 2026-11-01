@@ -40,6 +40,13 @@ portal do paciente e integrações financeiras continuam identificados como futu
 
 ## Publicação
 
+Na execução E2E em Docker no GitHub, o runner UTC expôs uma dependência do fuso
+da máquina nos horários dos cenários. O Playwright passou a definir explicitamente
+`America/Sao_Paulo` tanto no processo Node dos helpers quanto no navegador,
+correspondendo ao fuso das contas semeadas. Isso mantém os horários enviados pela
+API e preenchidos na interface consistentes, sem relaxar as regras de expediente
+ou remover os cenários que falharam.
+
 A auditoria executada no Actions identificou alertas de alta severidade nas
 versões anteriores de Zod e undici. O lockfile foi atualizado sem `--force`;
 lint, build e os 153 testes do front-end passaram novamente. A auditoria permanece
