@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Outlet, ScrollRestoration } from 'react-router';
+import { Navigate, Outlet, ScrollRestoration } from 'react-router';
 
 import { useTituloRota } from '../../core/use-titulo-rota';
+import { useSessao } from '../../core/autenticacao/autenticacao.service';
 import { PerfilProfissionalInicial } from '../../features/dados-profissionais/perfil-profissional-inicial';
 import { BuscaGlobal } from './busca-global';
 import { NavegacaoMovel } from './navegacao-movel';
@@ -21,6 +22,7 @@ function lerTrilhoRecolhido() {
 export function Shell() {
   const titulo = useTituloRota();
   const [recolhido, setRecolhido] = useState(lerTrilhoRecolhido);
+  const sessao = useSessao();
 
   function alternarTrilho() {
     setRecolhido((atual) => {
@@ -33,6 +35,8 @@ export function Shell() {
       return proximo;
     });
   }
+
+  if (sessao.status === 'anonimo') return <Navigate to="/login" replace />;
 
   return (
     <div

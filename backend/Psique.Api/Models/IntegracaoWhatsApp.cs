@@ -9,6 +9,8 @@ public class IntegracaoWhatsApp : EntidadeDaConta
     public string Nome { get; set; } = string.Empty;
     public string Provedor { get; set; } = string.Empty;
     [Cifrado]
+    public string? Instancia { get; set; }
+    [Cifrado]
     public string UrlBaseBridge { get; set; } = string.Empty;
     public string TokenCriptografado { get; set; } = string.Empty;
     public string TokenHash { get; set; } = string.Empty;

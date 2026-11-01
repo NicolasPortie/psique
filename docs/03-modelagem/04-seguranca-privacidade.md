@@ -236,6 +236,7 @@ um conjunto de permissoes administrativas.
   redefinir senha e alterar status exigem que as permissoes do alvo sejam um subconjunto das de
   quem pede. So o Psicologo gerencia o Psicologo.
 - O front-end esconde o que a pessoa nao pode abrir, mas isso nunca substitui a autorizacao do servidor.
+- A permissão Relatorios não concede os dados de outras áreas: relatórios financeiros também exigem Financeiro; cadastro exige Pacientes; agenda exige Agenda; histórico por paciente exige Agenda e Pacientes. O catálogo mostra somente os relatórios permitidos, e a geração repete a autorização.
 
 ## Auditoria
 

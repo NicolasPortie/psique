@@ -14,6 +14,7 @@ public class Lembrete : EntidadeDaConta
     public StatusLembrete Status { get; set; } = StatusLembrete.Agendado;
     public DateTimeOffset AgendadoPara { get; set; }
     public DateTimeOffset? EnviadoEm { get; set; }
+    public DateTimeOffset? EnvioEmailIniciadoEm { get; set; }
     [Cifrado]
     public string? Assunto { get; set; }
     [Cifrado]

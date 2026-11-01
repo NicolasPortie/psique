@@ -8,6 +8,8 @@ public class MensagemWhatsApp : EntidadeDaConta
     public Guid Id { get; set; }
     public Guid ConversaWhatsAppId { get; set; }
     public string? MensagemExternaId { get; set; }
+    public Guid? LembreteId { get; set; }
+    public DateTimeOffset? EnvioIniciadoEm { get; set; }
     public DirecaoMensagem Direcao { get; set; }
     public TipoMensagemWhatsApp TipoMensagem { get; set; } = TipoMensagemWhatsApp.Texto;
     public string? Conteudo { get; set; }

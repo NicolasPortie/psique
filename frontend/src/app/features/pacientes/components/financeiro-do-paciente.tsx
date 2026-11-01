@@ -4,6 +4,8 @@ import { EsqueletoLinhas } from '../../../components/feedback/esqueleto';
 import { EstadoErro, EstadoVazio } from '../../../components/feedback/estados';
 import { BotaoLink } from '../../../components/ui/botao';
 import { MarcaEstado } from '../../../components/ui/marca-estado';
+import { Paginacao } from '../../../components/ui/paginacao';
+import { useParametrosUrl } from '../../../core/hooks/use-parametros-url';
 import { mensagemDeErro } from '../../../core/erros/mensagem-de-erro';
 import { formatarMoeda } from '../../../core/formatacao/moeda';
 import { TabelaPagamentos } from '../../pagamentos/components/tabela-pagamentos';
@@ -12,7 +14,8 @@ import { useFinanceiroDoPaciente } from '../ficha-paciente.dados';
 
 /** Cobranças do paciente, com totais e as mesmas ações do Financeiro (receber, recibo, reembolsar). */
 export function FinanceiroDoPaciente({ pacienteId }: { pacienteId: string }) {
-  const { data, isPending, error, refetch, isFetching } = useFinanceiroDoPaciente(pacienteId);
+  const { pagina, atualizar } = useParametrosUrl();
+  const { data, isPending, error, refetch, isFetching } = useFinanceiroDoPaciente(pacienteId, true, pagina);
   if (isPending) return <EsqueletoLinhas quantidade={4} />;
   if (error || !data) return <EstadoErro mensagem={mensagemDeErro(error, 'Tente novamente em instantes.')} aoTentarNovamente={() => void refetch()} recarregando={isFetching} />;
   if (data.itens.length === 0) {
@@ -53,6 +56,9 @@ export function FinanceiroDoPaciente({ pacienteId }: { pacienteId: string }) {
         ))}
       </dl>
       <TabelaPagamentos pagamentos={data.itens} mostrarPaciente={false} rotulo="Cobranças do paciente" />
+      <Paginacao pagina={data.pagina} total={data.total} tamanhoPagina={data.tamanhoPagina}
+        aoMudarPagina={(proxima) => atualizar({ pagina: String(proxima) })} desabilitado={isFetching}
+        rotulo="Paginação das cobranças do paciente" />
     </div>
   );
 }

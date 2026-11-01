@@ -13,6 +13,63 @@ namespace Psique.Api.Tests;
 
 public sealed class WhatsAppBridgeServiceTests
 {
+    [Theory]
+    [InlineData("mensagem.entregue")]
+    [InlineData("mensagem.lida")]
+    [InlineData("mensagem.recebida")]
+    public async Task EventoAtrasado_NaoReativaConexaoDesconectada(string tipo)
+    {
+        await using var contexto = CriarContexto();
+        var protecao = new ProtecaoFake();
+        var cenario = await SemearContaAsync(contexto, protecao, false);
+        var integracao = await contexto.IntegracoesWhatsApp.SingleAsync();
+        integracao.Provedor = "Evolution API";
+        integracao.Status = StatusIntegracao.Pendente;
+        await contexto.SaveChangesAsync();
+        await CriarBridge(contexto, protecao).ReceberEventoAsync(cenario.Token, new()
+        {
+            EventoExternoId = "antigo", MensagemExternaId = "msg-antiga", TipoEvento = tipo,
+            Telefone = "5511999999999", Conteudo = "Olá"
+        }, null, null, default);
+        Assert.Equal(StatusIntegracao.Pendente, integracao.Status);
+    }
+
+    [Theory]
+    [InlineData("1133334444")]
+    [InlineData("11933334444")]
+    [InlineData("551133334444")]
+    [InlineData("5511933334444")]
+    public async Task NovoContato_AceitaVariacoesDeTelefoneSemFalha(string telefone)
+    {
+        await using var contexto = CriarContexto();
+        var protecao = new ProtecaoFake();
+        var cenario = await SemearContaAsync(contexto, protecao, false);
+        var resposta = await CriarBridge(contexto, protecao).ReceberEventoAsync(cenario.Token, new()
+        {
+            EventoExternoId = "telefone", MensagemExternaId = "msg-telefone", TipoEvento = "mensagem.recebida",
+            Telefone = telefone, Conteudo = "Olá"
+        }, null, null, default);
+        Assert.True(resposta.Processado);
+        Assert.Equal(telefone, Assert.Single(contexto.ConversasWhatsApp).Telefone);
+    }
+
+    [Theory]
+    [InlineData(StatusContaPsicologo.Inativa)]
+    [InlineData(StatusContaPsicologo.Bloqueada)]
+    [InlineData(StatusContaPsicologo.Cancelada)]
+    public async Task ReceberEvento_RecusaContaDesativadaMesmoComTokenValido(StatusContaPsicologo status)
+    {
+        await using var contexto = CriarContexto();
+        var protecao = new ProtecaoFake();
+        var cenario = await SemearContaAsync(contexto, protecao, false);
+        (await contexto.ContasPsicologo.SingleAsync()).Status = status;
+        await contexto.SaveChangesAsync();
+        var erro = await Assert.ThrowsAsync<RegraNegocioException>(() => CriarBridge(contexto, protecao).ReceberEventoAsync(cenario.Token, Mensagem("conta-inativa", "Olá"), null, null, CancellationToken.None));
+        Assert.Equal(StatusCodes.Status403Forbidden, erro.StatusCode);
+        Assert.Empty(contexto.EventosBridgeWhatsApp);
+        Assert.Empty(contexto.MensagensWhatsApp);
+    }
+
     [Fact]
     public async Task ReceberEvento_SemToken_DeveNegar()
     {

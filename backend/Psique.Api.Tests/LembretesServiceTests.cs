@@ -16,8 +16,156 @@ using Microsoft.Extensions.Options;
 
 namespace Psique.Api.Tests;
 
-public sealed class LembretesServiceTests
+public sealed class LembretesServiceTests(BancoIntegridadeRelacional banco) : IClassFixture<BancoIntegridadeRelacional>
 {
+    [SqlServerFact]
+    public async Task InterrupcaoSmtp_MarcadorPersisteEntreConexoesSqlIndependentes()
+    {
+        Guid id;
+        var email = new EmailFake { InterromperAposAceite = true };
+        await using (var antes = banco.CriarContexto())
+        {
+            var cenario = await CriarCenarioAsync(antes);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => CriarLembretesService(antes, true, email).CriarAsync(
+                cenario.UsuarioId, cenario.ContaId, new CriarLembreteRequest
+                {
+                    ConsultaId = cenario.Consulta.Id, Canal = CanalComunicacao.Email,
+                    AgendadoPara = DateTimeOffset.UtcNow.AddMinutes(-1), Assunto = "Consulta", Mensagem = "Lembrete de teste"
+                }, null, null, default));
+            id = await antes.Lembretes.Select(l => l.Id).SingleAsync();
+        }
+        await using var depois = banco.CriarContexto();
+        var aposReinicio = new EmailFake();
+        await CriarLembretesService(depois, true, aposReinicio).ProcessarVencidosAsync(default);
+        Assert.Single(email.Destinatarios);
+        Assert.Empty(aposReinicio.Destinatarios);
+        Assert.Equal(StatusLembrete.Falhou, (await depois.Lembretes.SingleAsync(l => l.Id == id)).Status);
+    }
+
+    [Fact]
+    public async Task InterrupcaoDepoisDoAceiteSmtp_NaoEnviaOutraVezAoRetomar()
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        var email = new EmailFake { InterromperAposAceite = true };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => CriarLembretesService(contexto, true, email).CriarAsync(
+            cenario.UsuarioId, cenario.ContaId, new CriarLembreteRequest
+            {
+                ConsultaId = cenario.Consulta.Id, Canal = CanalComunicacao.Email,
+                AgendadoPara = DateTimeOffset.UtcNow.AddMinutes(-1), Assunto = "Consulta", Mensagem = "Lembrete de teste"
+            }, null, null, default));
+        contexto.ChangeTracker.Clear();
+        var aposReinicio = new EmailFake();
+        var servico = CriarLembretesService(contexto, true, aposReinicio);
+        await servico.ProcessarVencidosAsync(default);
+        Assert.Single(email.Destinatarios);
+        Assert.Empty(aposReinicio.Destinatarios);
+        var lembrete = await contexto.Lembretes.SingleAsync();
+        Assert.Equal(StatusLembrete.Falhou, lembrete.Status);
+        Assert.Contains("Confira", lembrete.ErroEnvio);
+        await Assert.ThrowsAsync<RegraNegocioException>(() => servico.TentarNovamenteAsync(
+            cenario.UsuarioId, cenario.ContaId, lembrete.Id, null, null, default));
+        Assert.Empty(aposReinicio.Destinatarios);
+    }
+
+    [Fact]
+    public async Task Previa_UsaDataEHoraDoFusoDaConta()
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        (await contexto.ConfiguracoesAtendimento.SingleAsync()).FusoHorario = "America/Rio_Branco";
+        cenario.Consulta.InicioEm = new DateTimeOffset(2026, 11, 2, 23, 30, 0, TimeSpan.FromHours(-5)).ToUniversalTime();
+        await contexto.SaveChangesAsync();
+        var request = new PreviaLembreteRequest { ConsultaId = cenario.Consulta.Id, Mensagem = "{{data_consulta}} {{horario_consulta}}" };
+        var previa = await CriarLembretesService(contexto).PreviaAsync(cenario.UsuarioId, cenario.ContaId, request, CancellationToken.None);
+        Assert.Equal("02/11/2026 23:30", previa.Mensagem);
+        var modelo = await CriarModelosService(contexto).PreviaAsync(cenario.UsuarioId, cenario.ContaId,
+            new PreviaModeloMensagemRequest { ConsultaId = cenario.Consulta.Id, Conteudo = request.Mensagem }, CancellationToken.None);
+        Assert.Equal("02/11/2026 23:30", modelo.Conteudo);
+    }
+
+    [Fact]
+    public async Task EnviarEmail_DecifraEnderecoDoPacienteAntesDoTransporte()
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        cenario.Paciente.Email = "protegido:paciente@teste.local";
+        await contexto.SaveChangesAsync();
+        var email = new EmailFake();
+        var resultado = await CriarLembretesService(contexto, emailAtivo: true, email: email).CriarAsync(
+            cenario.UsuarioId, cenario.ContaId, new() { ConsultaId = cenario.Consulta.Id, Canal = CanalComunicacao.Email,
+                AgendadoPara = DateTimeOffset.UtcNow.AddSeconds(-1), Assunto = "Consulta", Mensagem = "Lembrete" }, null, null, CancellationToken.None);
+        Assert.Equal("paciente@teste.local", Assert.Single(email.Destinatarios));
+        Assert.Equal(StatusLembrete.Enviado, resultado.Status);
+    }
+
+    [Theory]
+    [InlineData(StatusConsulta.Cancelada)]
+    [InlineData(StatusConsulta.Remarcada)]
+    [InlineData(StatusConsulta.Realizada)]
+    [InlineData(StatusConsulta.NaoCompareceu)]
+    public async Task Reenviar_NaoEnviaLembreteDeConsultaEncerrada(StatusConsulta status)
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        cenario.Consulta.Status = status;
+        var lembrete = AdicionarLembrete(contexto, cenario, StatusLembrete.Falhou);
+        await contexto.SaveChangesAsync();
+        var email = new EmailFake();
+        var resultado = await CriarLembretesService(contexto, true, email).TentarNovamenteAsync(cenario.UsuarioId, cenario.ContaId, lembrete.Id, null, null, CancellationToken.None);
+        Assert.Empty(email.Destinatarios);
+        Assert.Equal(StatusLembrete.Ignorado, resultado.Status);
+    }
+
+    [Fact]
+    public async Task Reenviar_NaoEnviaLembreteDepoisDoInicioDaConsulta()
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        cenario.Consulta.InicioEm = DateTimeOffset.UtcNow.AddHours(-1);
+        var lembrete = AdicionarLembrete(contexto, cenario, StatusLembrete.Falhou);
+        await contexto.SaveChangesAsync();
+        var email = new EmailFake();
+        var resultado = await CriarLembretesService(contexto, true, email).TentarNovamenteAsync(cenario.UsuarioId, cenario.ContaId, lembrete.Id, null, null, CancellationToken.None);
+        Assert.Empty(email.Destinatarios);
+        Assert.Equal(StatusLembrete.Ignorado, resultado.Status);
+    }
+
+    [Fact]
+    public async Task Criar_RecusaLembreteAgendadoParaDepoisDaConsulta()
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        await Assert.ThrowsAsync<RegraNegocioException>(() => CriarLembretesService(contexto).CriarAsync(cenario.UsuarioId, cenario.ContaId,
+            new() { ConsultaId = cenario.Consulta.Id, Canal = CanalComunicacao.Email, AgendadoPara = cenario.Consulta.InicioEm.AddMinutes(1), Assunto = "Consulta", Mensagem = "Lembrete" }, null, null, CancellationToken.None));
+        Assert.Empty(contexto.Lembretes);
+    }
+
+    [Theory]
+    [InlineData(StatusContaPsicologo.Inativa)]
+    [InlineData(StatusContaPsicologo.Bloqueada)]
+    [InlineData(StatusContaPsicologo.Cancelada)]
+    public async Task ProcessarVencidos_NaoEnviaParaContaDesativada(StatusContaPsicologo status)
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        (await contexto.ContasPsicologo.SingleAsync()).Status = status;
+        AdicionarLembrete(contexto, cenario, StatusLembrete.Agendado);
+        await contexto.SaveChangesAsync();
+        var email = new EmailFake();
+        await CriarLembretesService(contexto, true, email).ProcessarVencidosAsync(CancellationToken.None);
+        Assert.Empty(email.Destinatarios);
+    }
+
+    private static Lembrete AdicionarLembrete(AppDbContext contexto, Cenario cenario, StatusLembrete status)
+    {
+        var lembrete = new Lembrete { Id = Guid.NewGuid(), ContaPsicologoId = cenario.ContaId, ConsultaId = cenario.Consulta.Id,
+            PacienteId = cenario.Paciente.Id, Canal = CanalComunicacao.Email, Tipo = TipoLembrete.LembreteConsulta, Status = status,
+            AgendadoPara = DateTimeOffset.UtcNow.AddMinutes(-1), Assunto = "Consulta", Mensagem = "Lembrete" };
+        contexto.Add(lembrete);
+        return lembrete;
+    }
+
     [Fact]
     public async Task ProcessarVencidos_EncerraLembreteDeConsultaQueJaComecou()
     {
@@ -568,10 +716,13 @@ public sealed class LembretesServiceTests
             null,
             CancellationToken.None);
 
-        Assert.Equal(StatusLembrete.Enviado, resposta.Status);
+        Assert.Equal(StatusLembrete.Agendado, resposta.Status);
+        Assert.Null(resposta.EnviadoEm);
         var saida = Assert.Single(contexto.MensagensWhatsApp);
         Assert.Equal(DirecaoMensagem.Saida, saida.Direcao);
         Assert.Equal(conversaId, saida.ConversaWhatsAppId);
+        Assert.Equal(resposta.Id, saida.LembreteId);
+        Assert.Equal(StatusMensagemWhatsApp.Pendente, saida.Status);
     }
 
     [Fact]
@@ -614,13 +765,13 @@ public sealed class LembretesServiceTests
         Assert.Empty(contexto.MensagensWhatsApp);
     }
 
-    private static LembretesService CriarLembretesService(AppDbContext contexto, bool emailAtivo = false) =>
+    private static LembretesService CriarLembretesService(AppDbContext contexto, bool emailAtivo = false, EmailFake? email = null) =>
         new(
             contexto,
             new AutorizacaoContaService(contexto),
             new AuditoriaCaptura(),
             new ModeloMensagemTemplateService(),
-            new EmailFake(),
+            email ?? new EmailFake(),
             Options.Create(new EmailConfiguracao { Ativo = emailAtivo }),
             new NotificacoesService(contexto, new AutorizacaoContaService(contexto)),
             new ProtecaoFake());
@@ -732,6 +883,8 @@ public sealed class LembretesServiceTests
 
     private sealed class EmailFake : IEmailTransacionalService
     {
+        public bool InterromperAposAceite { get; init; }
+        public List<string> Destinatarios { get; } = [];
         public Task<bool> EnviarRecuperacaoSenhaAsync(string destinatario, string nome, string token, CancellationToken cancellationToken) =>
             Task.FromResult(false);
 
@@ -740,8 +893,12 @@ public sealed class LembretesServiceTests
             string nomeDestinatario,
             string assunto,
             string corpo,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(true);
+            CancellationToken cancellationToken)
+        {
+            Destinatarios.Add(destinatario);
+            if (InterromperAposAceite) throw new InvalidOperationException("Interrupção simulada após o aceite SMTP.");
+            return Task.FromResult(true);
+        }
     }
 
     private sealed class ProtecaoFake : IProtecaoDadosService

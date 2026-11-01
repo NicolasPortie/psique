@@ -10,17 +10,17 @@ export function periodoDaFicha(hoje = new Date()) {
   return { inicio: adicionarDias(hoje, -365), fim: adicionarDias(hoje, 180) };
 }
 
-export function useConsultasDoPaciente(pacienteId: string) {
+export function useConsultasDoPaciente(pacienteId: string, habilitado = true) {
   const { inicio, fim } = periodoDaFicha();
   const passado = useQuery({
     queryKey: agendaKeys.consultas(inicio.toISOString().slice(0, 10), new Date().toISOString().slice(0, 10), pacienteId),
     queryFn: ({ signal }) => listarConsultas(inicio.toISOString(), new Date().toISOString(), { signal, pacienteId }),
-    enabled: Boolean(pacienteId),
+    enabled: Boolean(pacienteId) && habilitado,
   });
   const futuro = useQuery({
     queryKey: agendaKeys.consultas(new Date().toISOString().slice(0, 10), fim.toISOString().slice(0, 10), pacienteId),
     queryFn: ({ signal }) => listarConsultas(new Date().toISOString(), fim.toISOString(), { signal, pacienteId }),
-    enabled: Boolean(pacienteId),
+    enabled: Boolean(pacienteId) && habilitado,
   });
   const todas = [...(passado.data ?? []), ...(futuro.data ?? [])].filter(
     (consulta, indice, lista) => lista.findIndex((outra) => outra.id === consulta.id) === indice,
@@ -39,14 +39,14 @@ export function resumirConsultas(consultas: Consulta[], agora = new Date()) {
   const faltas = consultas.filter((consulta) => consulta.status === 'NaoCompareceu').length;
   const proxima = consultas
     .filter((consulta) => new Date(consulta.fimEm) > agora && ['Agendada', 'AguardandoConfirmacao', 'Confirmada'].includes(consulta.status))
-    .sort((a, b) => a.inicioEm.localeCompare(b.inicioEm))[0];
-  const primeira = [...realizadas].sort((a, b) => a.inicioEm.localeCompare(b.inicioEm))[0];
+    .sort((a, b) => Date.parse(a.inicioEm) - Date.parse(b.inicioEm))[0];
+  const primeira = [...realizadas].sort((a, b) => Date.parse(a.inicioEm) - Date.parse(b.inicioEm))[0];
   return { realizadas: realizadas.length, faltas, proxima: proxima ?? null, primeira: primeira ?? null };
 }
 
 
-export function useFinanceiroDoPaciente(pacienteId: string, habilitado = true) {
-  const filtro = { pacienteId, pagina: 1, tamanhoPagina: 50 };
+export function useFinanceiroDoPaciente(pacienteId: string, habilitado = true, pagina = 1) {
+  const filtro = { pacienteId, pagina, tamanhoPagina: 50 };
   return useQuery({
     queryKey: pagamentosKeys.lista(filtro),
     queryFn: ({ signal }) => listarPagamentos(filtro, { signal }),

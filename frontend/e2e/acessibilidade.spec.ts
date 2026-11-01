@@ -12,10 +12,13 @@ const conta = {
 };
 
 /** Regras WCAG 2.x A e AA. As violações saem no relatório do teste com o seletor de cada elemento. */
-async function violacoes(pagina: Page) {
-  const resultado = await new AxeBuilder({ page: pagina })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-    .analyze();
+async function violacoes(pagina: Page, escopo?: string) {
+  const verificador = new AxeBuilder({ page: pagina })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']);
+  // Com um modal aberto, o fundo está coberto pelo scrim. A página é verificada
+  // separadamente acima; aqui medimos a superfície disponível para interação.
+  if (escopo) verificador.include(escopo);
+  const resultado = await verificador.analyze();
   return resultado.violations.map((violacao) => ({
     regra: violacao.id,
     impacto: violacao.impact,
@@ -74,6 +77,8 @@ for (const tema of ['light', 'dark'] as const) {
       });
 
       test('telas autenticadas não têm violações', async ({ page }) => {
+        // O mesmo teste navega por 20 telas e executa uma análise axe em cada uma.
+        test.setTimeout(120_000);
         await entrar(page, conta.email, conta.senha);
         for (const rota of autenticadas) {
           await page.goto(rota);
@@ -88,13 +93,13 @@ for (const tema of ['light', 'dark'] as const) {
         await page.goto('/pagamentos');
         await page.getByRole('button', { name: 'Nova cobrança' }).first().click();
         await expect(page.getByRole('dialog', { name: 'Nova cobrança' })).toBeVisible();
-        expect(await violacoes(page), 'gaveta de pagamento').toEqual([]);
+        expect(await violacoes(page, '[role="dialog"]'), 'gaveta de pagamento').toEqual([]);
         await page.keyboard.press('Escape');
 
         await page.goto('/documentos');
         await page.getByRole('button', { name: 'Novo documento' }).first().click();
         await expect(page.getByRole('dialog', { name: 'Novo documento' })).toBeVisible();
-        expect(await violacoes(page), 'gaveta de documento').toEqual([]);
+        expect(await violacoes(page, '[role="dialog"]'), 'gaveta de documento').toEqual([]);
         await page.keyboard.press('Escape');
 
         await page.goto('/configuracoes/equipe');
@@ -103,7 +108,7 @@ for (const tema of ['light', 'dark'] as const) {
           .first()
           .click();
         await expect(page.getByRole('dialog')).toBeVisible();
-        expect(await violacoes(page), 'gaveta de usuário').toEqual([]);
+        expect(await violacoes(page, '[role="dialog"]'), 'gaveta de usuário').toEqual([]);
       });
     });
   });

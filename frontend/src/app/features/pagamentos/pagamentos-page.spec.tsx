@@ -50,8 +50,27 @@ function responder(corpoLista: unknown, ok = true) {
 
 describe('PagamentosPage', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('exporta os últimos 12 meses dentro do limite da API ao listar todo o período', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 31, 12));
+    const chamadas: string[] = [];
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      chamadas.push(url);
+      return Promise.resolve(Response.json(url.includes('/exportacao?') ? { sucesso: true, dados: [] } : listagem([])));
+    }));
+    renderPagamentos('/pagamentos?mes=todos');
+    await screen.findByText('Nenhuma cobrança neste período');
+    await userEvent.click(screen.getByRole('button', { name: 'Mais ações do financeiro' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Exportar recebimentos/ }));
+    await waitFor(() => expect(chamadas.some((url) => url.includes('/exportacao?'))).toBe(true));
+    const url = new URL(chamadas.find((item) => item.includes('/exportacao?'))!, 'http://localhost');
+    expect(url.searchParams.get('de')).toBe('2025-11-01');
+    expect(url.searchParams.get('ate')).toBe('2026-10-31');
   });
 
   it('mostra os totais e lista o pagamento com estado em texto', async () => {

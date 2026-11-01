@@ -146,6 +146,8 @@ public sealed class LembretesService(
         var agendadoPara = request.AgendadoPara.ToUniversalTime();
         if (agendadoPara < DateTimeOffset.UtcNow.AddMinutes(-5))
             throw new RegraNegocioException("A data de agendamento do lembrete não pode estar no passado.");
+        if (agendadoPara >= consulta.InicioEm)
+            throw new RegraNegocioException("Programe o lembrete para antes do início da consulta.");
 
         var duplicado = await dbContext.Lembretes.AnyAsync(
             item => item.ContaPsicologoId == contaId &&
@@ -250,6 +252,7 @@ public sealed class LembretesService(
         string? userAgent,
         CancellationToken cancellationToken)
     {
+        await using var trava = await Shared.Concorrencia.TravaOperacao.AdquirirAsync(dbContext, $"lembrete:{id:N}", cancellationToken);
         await autorizacao.ObterUsuarioAtivoAsync(usuarioId, contaId, cancellationToken);
         var lembrete = await ObterLembreteAsync(contaId, id, cancellationToken, rastrear: true);
 
@@ -284,14 +287,22 @@ public sealed class LembretesService(
         string? userAgent,
         CancellationToken cancellationToken)
     {
+        await using var trava = await Shared.Concorrencia.TravaOperacao.AdquirirAsync(dbContext, $"lembrete:{id:N}", cancellationToken);
         await autorizacao.ObterUsuarioAtivoAsync(usuarioId, contaId, cancellationToken);
         var lembrete = await ObterLembreteAsync(contaId, id, cancellationToken, rastrear: true);
 
         if (lembrete.Status != StatusLembrete.Falhou)
             throw new RegraNegocioException("Somente lembretes com falha podem ser reprocessados.");
 
+        if (lembrete.Canal == CanalComunicacao.Email && lembrete.EnvioEmailIniciadoEm is not null)
+            throw new RegraNegocioException("Confira o envio no serviço de e-mail antes de criar um novo lembrete. Esta tentativa não será repetida para evitar duplicação.");
+
         if (lembrete.Canal is CanalComunicacao.Sms)
             throw new RegraNegocioException("Canal indisponível nesta etapa. Reprocesse com e-mail quando o lembrete for recriado.");
+
+        if (lembrete.Canal == CanalComunicacao.WhatsApp && await dbContext.MensagensWhatsApp.AnyAsync(
+            m => m.ContaPsicologoId == contaId && m.LembreteId == id && m.EnvioIniciadoEm != null, cancellationToken))
+            throw new RegraNegocioException("Confira o envio no provedor antes de criar uma nova mensagem. Esta tentativa não será repetida automaticamente.");
 
         var statusAnterior = lembrete.Status;
         lembrete.Status = StatusLembrete.Agendado;
@@ -311,6 +322,7 @@ public sealed class LembretesService(
             ip,
             userAgent);
 
+        await dbContext.SaveChangesAsync(cancellationToken);
         await TentarProcessarEnvioAsync(
             lembrete,
             lembrete.Consulta,
@@ -517,8 +529,9 @@ public sealed class LembretesService(
             .Include(item => item.Paciente)
             // Quem já foi tentado (e-mail desligado, canal interno) volta a cada 15 minutos, não a cada ciclo:
             // assim lembretes travados não ocupam o lote e escondem os novos.
-            .Where(item => item.Status == StatusLembrete.Agendado && item.AgendadoPara <= agora &&
-                           (item.AtualizadoEm == null || item.AtualizadoEm <= agora.AddMinutes(-15)))
+            .Where(item => item.ContaPsicologo.Status == StatusContaPsicologo.Ativa &&
+                           item.Status == StatusLembrete.Agendado && item.AgendadoPara <= agora &&
+                           (item.EnvioEmailIniciadoEm != null || item.AtualizadoEm == null || item.AtualizadoEm <= agora.AddMinutes(-15)))
             .OrderBy(item => item.AgendadoPara)
             .Take(50)
             .ToListAsync(cancellationToken);
@@ -526,50 +539,6 @@ public sealed class LembretesService(
         var processados = 0;
         foreach (var lembrete in vencidos)
         {
-            // Consulta encerrada: não envia.
-            if (lembrete.Consulta.Status is StatusConsulta.Cancelada or StatusConsulta.Remarcada or StatusConsulta.NaoCompareceu)
-            {
-                lembrete.Status = StatusLembrete.Ignorado;
-                lembrete.ErroEnvio = "Consulta não está mais ativa; lembrete ignorado.";
-                lembrete.AtualizadoEm = DateTimeOffset.UtcNow;
-                auditoria.Registrar(
-                    lembrete.ContaPsicologoId,
-                    null,
-                    "LembreteIgnoradoWorker",
-                    nameof(Lembrete),
-                    lembrete.Id,
-                    "Lembrete ignorado porque a consulta não está ativa.",
-                    null,
-                    new { lembrete.Status, ConsultaStatus = lembrete.Consulta.Status },
-                    null,
-                    null);
-                await dbContext.SaveChangesAsync(cancellationToken);
-                processados++;
-                continue;
-            }
-
-            // A consulta já começou: lembrar depois não serve ao paciente.
-            if (lembrete.Consulta.InicioEm <= agora)
-            {
-                lembrete.Status = StatusLembrete.Ignorado;
-                lembrete.ErroEnvio = "A consulta já aconteceu antes do envio; lembrete encerrado.";
-                lembrete.AtualizadoEm = DateTimeOffset.UtcNow;
-                auditoria.Registrar(
-                    lembrete.ContaPsicologoId,
-                    null,
-                    "LembreteExpirado",
-                    nameof(Lembrete),
-                    lembrete.Id,
-                    "Lembrete encerrado porque a consulta já começou.",
-                    null,
-                    new { lembrete.Status, ConsultaInicioEm = lembrete.Consulta.InicioEm },
-                    null,
-                    null);
-                await dbContext.SaveChangesAsync(cancellationToken);
-                processados++;
-                continue;
-            }
-
             await TentarProcessarEnvioAsync(
                 lembrete,
                 lembrete.Consulta,
@@ -639,7 +608,6 @@ public sealed class LembretesService(
     {
         var cultura = CultureInfo.GetCultureInfo("pt-BR");
         var valores = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        ModelosMensagemService.PreencherValoresConsulta(valores, consulta, cultura);
 
         var profissional = await dbContext.DadosProfissionaisPsicologo
             .AsNoTracking()
@@ -654,6 +622,8 @@ public sealed class LembretesService(
         var configuracao = await dbContext.ConfiguracoesAtendimento
             .AsNoTracking()
             .SingleOrDefaultAsync(item => item.ContaPsicologoId == contaId && item.Ativo, cancellationToken);
+
+        ModelosMensagemService.PreencherValoresConsulta(valores, consulta, cultura, Agenda.FusoHorarioConta.Resolver(configuracao?.FusoHorario));
 
         if (configuracao is null)
         {
@@ -685,8 +655,38 @@ public sealed class LembretesService(
         string? userAgent,
         CancellationToken cancellationToken)
     {
+        await using var trava = await Shared.Concorrencia.TravaOperacao.AdquirirAsync(dbContext, $"lembrete:{lembrete.Id:N}", cancellationToken);
+        await dbContext.Entry(lembrete).ReloadAsync(cancellationToken);
+        await dbContext.Entry(consulta).ReloadAsync(cancellationToken);
+        var contaAtiva = await dbContext.ContasPsicologo.AsNoTracking()
+            .AnyAsync(item => item.Id == lembrete.ContaPsicologoId && item.Status == StatusContaPsicologo.Ativa, cancellationToken);
+        if (!contaAtiva) return;
         if (lembrete.Status != StatusLembrete.Agendado)
             return;
+
+        if (lembrete.Canal == CanalComunicacao.Email && lembrete.EnvioEmailIniciadoEm is not null)
+        {
+            lembrete.Status = StatusLembrete.Falhou;
+            lembrete.ErroEnvio = "O envio anterior não foi confirmado. Confira no serviço de e-mail antes de criar um novo lembrete para evitar duplicação.";
+            lembrete.AtualizadoEm = DateTimeOffset.UtcNow;
+            auditoria.Registrar(lembrete.ContaPsicologoId, usuarioId, "LembreteEmailSemConfirmacao", nameof(Lembrete),
+                lembrete.Id, "Tentativa de e-mail interrompida; novo envio exige conferência.", null, new { lembrete.Status }, ip, userAgent);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        // Todas as entradas (criação imediata, reenvio e worker) conferem a consulta
+        // novamente antes de entregar a mensagem ao transporte.
+        if (!StatusConsultaPermitidos.Contains(consulta.Status) || consulta.InicioEm <= DateTimeOffset.UtcNow)
+        {
+            lembrete.Status = StatusLembrete.Ignorado;
+            lembrete.ErroEnvio = "A consulta já começou ou não está mais ativa; lembrete encerrado.";
+            lembrete.AtualizadoEm = DateTimeOffset.UtcNow;
+            auditoria.Registrar(lembrete.ContaPsicologoId, usuarioId, "LembreteEncerradoPorConsulta", nameof(Lembrete),
+                lembrete.Id, "Lembrete encerrado porque a consulta não permite mais o envio.", null, new { lembrete.Status }, ip, userAgent);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
+        }
 
         if (lembrete.Canal == CanalComunicacao.WhatsApp)
         {
@@ -725,7 +725,9 @@ public sealed class LembretesService(
             return;
         }
 
-        var destinatario = consulta.Paciente.Email;
+        var destinatario = string.IsNullOrWhiteSpace(consulta.Paciente.Email)
+            ? null
+            : protecaoDados.Desproteger(consulta.Paciente.Email);
         if (string.IsNullOrWhiteSpace(destinatario))
         {
             lembrete.Status = StatusLembrete.Falhou;
@@ -747,6 +749,12 @@ public sealed class LembretesService(
             return;
         }
 
+        // O aceite SMTP pode ocorrer antes de uma queda do processo. Registra a
+        // tentativa antes do transporte para impedir repetição cega após reinício.
+        lembrete.EnvioEmailIniciadoEm = DateTimeOffset.UtcNow;
+        lembrete.AtualizadoEm = DateTimeOffset.UtcNow;
+        lembrete.ErroEnvio = "Envio iniciado. Se não houver confirmação, confira no serviço de e-mail antes de criar outro lembrete.";
+        await dbContext.SaveChangesAsync(cancellationToken);
         var enviado = await emailTransacional.EnviarMensagemAdministrativaAsync(
             destinatario,
             consulta.Paciente.NomeCompleto,
@@ -775,7 +783,7 @@ public sealed class LembretesService(
         else
         {
             lembrete.Status = StatusLembrete.Falhou;
-            lembrete.ErroEnvio = "Falha técnica no envio do e-mail. Tente novamente mais tarde.";
+            lembrete.ErroEnvio = "O envio não foi confirmado. Confira no serviço de e-mail antes de criar um novo lembrete para evitar duplicação.";
             lembrete.AtualizadoEm = DateTimeOffset.UtcNow;
             auditoria.Registrar(
                 lembrete.ContaPsicologoId,
@@ -830,11 +838,15 @@ public sealed class LembretesService(
             return;
         }
 
+        var jaEnfileirado = await dbContext.MensagensWhatsApp.AnyAsync(
+            item => item.ContaPsicologoId == lembrete.ContaPsicologoId && item.LembreteId == lembrete.Id, cancellationToken);
+        if (jaEnfileirado) return;
         dbContext.MensagensWhatsApp.Add(new MensagemWhatsApp
         {
             Id = Guid.NewGuid(),
             ContaPsicologoId = lembrete.ContaPsicologoId,
             ConversaWhatsAppId = conversa.Id,
+            LembreteId = lembrete.Id,
             Direcao = DirecaoMensagem.Saida,
             TipoMensagem = TipoMensagemWhatsApp.Texto,
             Conteudo = protecaoDados.Proteger(lembrete.Mensagem ?? string.Empty),
@@ -845,14 +857,12 @@ public sealed class LembretesService(
         conversa.UltimaMensagemEm = DateTimeOffset.UtcNow;
         conversa.AtualizadoEm = DateTimeOffset.UtcNow;
 
-        lembrete.Status = StatusLembrete.Enviado;
-        lembrete.EnviadoEm = DateTimeOffset.UtcNow;
-        lembrete.ErroEnvio = null;
+        lembrete.ErroEnvio = "Aguardando envio pelo WhatsApp.";
         lembrete.AtualizadoEm = DateTimeOffset.UtcNow;
         auditoria.Registrar(
             lembrete.ContaPsicologoId,
             usuarioId,
-            "LembreteEnviadoWhatsApp",
+            "LembreteEnfileiradoWhatsApp",
             nameof(Lembrete),
             lembrete.Id,
             "Lembrete registrado para entrega via Bridge WhatsApp.",

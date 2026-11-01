@@ -10,6 +10,7 @@ export interface IntegracaoWhatsApp {
   id: string;
   nome: string;
   provedor: string;
+  instancia?: string | null;
   urlBaseBridge: string;
   tokenMascarado: string;
   numeroWhatsApp: string;
@@ -24,6 +25,7 @@ export interface IntegracaoWhatsApp {
 export interface SalvarIntegracaoRequest {
   nome: string;
   provedor: string;
+  instancia?: string | null;
   urlBaseBridge: string;
   token?: string | null;
   numeroWhatsApp: string;

@@ -44,6 +44,10 @@ Paciente no WhatsApp
 
 ## IntegracoesWhatsApp
 
+O transporte implementado usa Evolution API v2, com instância e chave exclusivas
+por conta. Veja a [decisão de entrega](../adr/0005-entrega-whatsapp-e-concorrencia.md)
+e o [procedimento de conexão](../05-operacao/WHATSAPP_EVOLUTION.md).
+
 Campos principais:
 
 ```txt
@@ -51,6 +55,7 @@ Id
 ContaPsicologoId
 Nome
 Provedor
+Instancia
 UrlBaseBridge
 TokenCriptografado
 NumeroWhatsApp
@@ -114,6 +119,8 @@ Id
 ContaPsicologoId
 ConversaWhatsAppId
 MensagemExternaId
+LembreteId
+EnvioIniciadoEm
 Direcao
 TipoMensagem
 Conteudo
@@ -131,6 +138,13 @@ Regras:
 - evitar armazenar relato clinico desnecessario;
 - usar `MensagemExternaId` para idempotencia;
 - considerar mascaramento/resumo/descarte para conteudo sensivel.
+- Mensagem Pendente não comprova envio: o lembrete vinculado permanece Agendado
+  até o provedor aceitar a mensagem e devolver seu identificador.
+- Enviada significa aceite do provedor; Entregue e Lida dependem de confirmação.
+- Tentativas iniciadas sem confirmação exigem conferência antes de um novo envio;
+  não são repetidas automaticamente, inclusive após reinício da API.
+- Confirmações anteriores ao retorno do envio são preservadas e correlacionadas;
+  eventos fora de ordem não fazem uma mensagem lida voltar a entregue.
 
 ## EventosBridgeWhatsApp
 

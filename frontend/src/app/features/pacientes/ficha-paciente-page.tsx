@@ -54,17 +54,21 @@ export default function FichaPacientePage() {
   const queryClient = useQueryClient();
   const { acessoClinico, pode } = usePermissoes();
   const podeFinanceiro = pode('Financeiro');
+  const podeAgenda = pode('Agenda');
   const [confirmandoInativacao, setConfirmandoInativacao] = useState(false);
 
   const abaDaUrl = params.get('aba') as Aba | null;
-  const aba: Aba = abaDaUrl && abasValidas.includes(abaDaUrl) ? abaDaUrl : 'resumo';
+  const abaPermitida = abaDaUrl !== 'consultas' || podeAgenda;
+  const abaFinanceiraPermitida = abaDaUrl !== 'financeiro' || podeFinanceiro;
+  const abaClinicaPermitida = abaDaUrl !== 'documentos' || acessoClinico;
+  const aba: Aba = abaDaUrl && abasValidas.includes(abaDaUrl) && abaPermitida && abaFinanceiraPermitida && abaClinicaPermitida ? abaDaUrl : 'resumo';
 
   const pacienteQuery = useQuery({
     queryKey: pacientesKeys.detalhe(id),
     queryFn: ({ signal }) => obterPacientePorId(id, { signal }),
     enabled: Boolean(id),
   });
-  const consultas = useConsultasDoPaciente(id);
+  const consultas = useConsultasDoPaciente(id, podeAgenda);
   const financeiro = useFinanceiroDoPaciente(id, podeFinanceiro);
 
   const consentir = useMutation({
@@ -143,7 +147,7 @@ export default function FichaPacientePage() {
 
   const abas = [
     { valor: 'resumo', rotulo: 'Resumo' },
-    { valor: 'consultas', rotulo: 'Consultas', contagem: consultas.isPending ? undefined : consultas.consultas.length },
+    ...(podeAgenda ? [{ valor: 'consultas', rotulo: 'Consultas', contagem: consultas.isPending || consultas.error ? undefined : consultas.consultas.length }] : []),
     ...(podeFinanceiro ? [{ valor: 'financeiro', rotulo: 'Financeiro' }] : []),
     ...(acessoClinico ? [{ valor: 'documentos', rotulo: 'Documentos' }] : []),
   ];
@@ -157,9 +161,9 @@ export default function FichaPacientePage() {
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <EstadoRotulado estado={estadosPaciente[paciente.status]} />
             {idade !== null ? <span className="text-sm">{pluralizar(idade, 'ano')}</span> : null}
-            {resumo.primeira ? (
+            {podeAgenda && !consultas.error && resumo.primeira ? (
               <span className="text-sm">
-                Em acompanhamento desde <span className="num">{formatarData(resumo.primeira.inicioEm)}</span>
+                Primeira sessão no último ano: <span className="num">{formatarData(resumo.primeira.inicioEm)}</span>
               </span>
             ) : null}
           </span>
@@ -173,43 +177,45 @@ export default function FichaPacientePage() {
                 Prontuário
               </BotaoLink>
             ) : null}
-            <BotaoLink to={`/consultas/nova?pacienteId=${paciente.id}`} variante="primario">
+            {podeAgenda && paciente.status === 'Ativo' ? <BotaoLink to={`/consultas/nova?pacienteId=${paciente.id}`} variante="primario">
               <CalendarPlus size={16} aria-hidden="true" />
               Agendar consulta
-            </BotaoLink>
+            </BotaoLink> : null}
           </>
         }
       />
 
-      <section aria-label="Resumo do acompanhamento" className="grid gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center sm:gap-6 sm:p-5">
+      {podeAgenda || podeFinanceiro ? <section aria-label="Resumo do acompanhamento" className="grid gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center sm:gap-6 sm:p-5">
         <Avatar nome={paciente.nomeCompleto} tamanho="enorme" className="max-sm:hidden" />
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+          {podeAgenda ? <>
           <div className="grid gap-0.5">
             <dt className="text-sm text-ink-muted">Próxima consulta</dt>
             <dd className="text-base font-medium text-ink">
-              {resumo.proxima ? (
+              {consultas.isPending ? '…' : consultas.error ? 'Indisponível' : resumo.proxima ? (
                 <Link to={`/consultas/${resumo.proxima.id}`} className="num">
                   {formatarDataHora(resumo.proxima.inicioEm)}
                 </Link>
               ) : (
                 <span className="text-ink-muted">Nada agendado</span>
               )}
-              {resumo.proxima ? <span className="block text-sm font-normal text-ink-muted">{formatarTempoRelativo(resumo.proxima.inicioEm)}</span> : null}
+              {!consultas.error && resumo.proxima ? <span className="block text-sm font-normal text-ink-muted">{formatarTempoRelativo(resumo.proxima.inicioEm)}</span> : null}
             </dd>
           </div>
           <div className="grid gap-0.5">
             <dt className="text-sm text-ink-muted">Sessões no último ano</dt>
-            <dd className="num text-base font-medium text-ink">{consultas.isPending ? '…' : resumo.realizadas}</dd>
+            <dd className="num text-base font-medium text-ink">{consultas.isPending ? '…' : consultas.error ? 'Indisponível' : resumo.realizadas}</dd>
           </div>
           <div className="grid gap-0.5">
             <dt className="text-sm text-ink-muted">Faltas</dt>
-            <dd className="num text-base font-medium text-ink">{consultas.isPending ? '…' : resumo.faltas}</dd>
+            <dd className="num text-base font-medium text-ink">{consultas.isPending ? '…' : consultas.error ? 'Indisponível' : resumo.faltas}</dd>
           </div>
+          </> : null}
           {podeFinanceiro ? (
             <div className="grid gap-0.5">
               <dt className="text-sm text-ink-muted">Em aberto</dt>
               <dd className="num text-base font-medium text-ink">
-                {financeiro.data ? formatarMoeda(financeiro.data.resumo.pendente) : '…'}
+                {financeiro.error ? 'Indisponível' : financeiro.data ? formatarMoeda(financeiro.data.resumo.pendente) : '…'}
                 {financeiro.data && financeiro.data.resumo.vencido > 0 ? (
                   <span className="block text-sm font-normal text-danger-ink">{formatarMoeda(financeiro.data.resumo.vencido)} vencido</span>
                 ) : null}
@@ -217,7 +223,17 @@ export default function FichaPacientePage() {
             </div>
           ) : null}
         </dl>
-      </section>
+      </section> : null}
+
+      {podeAgenda && consultas.error ? <EstadoErro
+        mensagem="Não foi possível carregar as consultas deste paciente."
+        aoTentarNovamente={() => void consultas.refetch()}
+      /> : null}
+
+      {podeFinanceiro && financeiro.error ? <EstadoErro
+        mensagem="Não foi possível carregar os pagamentos deste paciente."
+        aoTentarNovamente={() => void financeiro.refetch()}
+      /> : null}
 
       {menor && responsaveis.length === 0 ? (
         <p className="flex items-start gap-2 rounded-lg border border-warning-line bg-warning-wash px-4 py-3 text-base text-warning-ink">
@@ -317,9 +333,9 @@ export default function FichaPacientePage() {
           </div>
         </PainelAba>
 
-        <PainelAba valor="consultas">
-          <ConsultasDoPaciente pacienteId={paciente.id} />
-        </PainelAba>
+        {podeAgenda ? <PainelAba valor="consultas">
+          <ConsultasDoPaciente pacienteId={paciente.id} podeAgendar={paciente.status === 'Ativo'} />
+        </PainelAba> : null}
 
         {podeFinanceiro ? (
           <PainelAba valor="financeiro">

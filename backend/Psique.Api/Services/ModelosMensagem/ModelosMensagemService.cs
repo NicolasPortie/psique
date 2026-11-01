@@ -313,7 +313,7 @@ public sealed partial class ModelosMensagemService(
                     cancellationToken)
                 ?? throw new RegraNegocioException("Consulta não encontrada.", StatusCodes.Status404NotFound);
 
-            PreencherValoresConsulta(valores, consulta, cultura);
+            PreencherValoresConsulta(valores, consulta, cultura, Agenda.FusoHorarioConta.Resolver(configuracao?.FusoHorario));
             return valores;
         }
 
@@ -334,11 +334,13 @@ public sealed partial class ModelosMensagemService(
     internal static void PreencherValoresConsulta(
         IDictionary<string, string?> valores,
         Consulta consulta,
-        CultureInfo cultura)
+        CultureInfo cultura,
+        TimeZoneInfo fuso)
     {
         valores[VariaveisModeloMensagem.NomePaciente] = consulta.Paciente.NomeCompleto;
-        valores[VariaveisModeloMensagem.DataConsulta] = consulta.InicioEm.ToOffset(TimeSpan.FromHours(-3)).ToString("dd/MM/yyyy", cultura);
-        valores[VariaveisModeloMensagem.HorarioConsulta] = consulta.InicioEm.ToOffset(TimeSpan.FromHours(-3)).ToString("HH:mm", cultura);
+        var inicioLocal = TimeZoneInfo.ConvertTime(consulta.InicioEm, fuso);
+        valores[VariaveisModeloMensagem.DataConsulta] = inicioLocal.ToString("dd/MM/yyyy", cultura);
+        valores[VariaveisModeloMensagem.HorarioConsulta] = inicioLocal.ToString("HH:mm", cultura);
         valores[VariaveisModeloMensagem.Modalidade] = consulta.Modalidade switch
         {
             ModalidadeAtendimento.Online => "Online",

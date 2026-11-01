@@ -14,8 +14,17 @@ namespace Psique.Api.Controllers;
 [AllowAnonymous]
 [EnableRateLimiting("sem-sessao")]
 [Route("api/v1/whatsapp/bridge")]
-public sealed class WhatsAppBridgeWebhookController(IBridgeWhatsAppService bridgeService) : ControllerBase
+public sealed class WhatsAppBridgeWebhookController(IBridgeWhatsAppService bridgeService, WebhookEvolutionService evolution) : ControllerBase
 {
+    [HttpPost("evolution")]
+    [RequestSizeLimit(128 * 1024)]
+    public async Task<IActionResult> ReceberEvolution([FromBody] System.Text.Json.JsonElement corpo, CancellationToken cancellationToken)
+    {
+        await evolution.ReceberAsync(corpo, Request.Headers["X-Psique-Bridge-Token"].FirstOrDefault(),
+            HttpContext.Connection.RemoteIpAddress?.ToString(), Request.Headers.UserAgent.ToString(), cancellationToken);
+        return Ok(RespostaApi<bool>.ComSucesso(true));
+    }
+
     [HttpPost("eventos")]
     public async Task<IActionResult> ReceberEvento(
         [FromBody] ReceberEventoBridgeRequest request,

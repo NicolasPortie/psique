@@ -1,4 +1,4 @@
-using System.Net;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Psique.Api.Data;
 using Psique.Api.DTOs.WhatsApp;
@@ -37,6 +37,8 @@ public sealed partial class IntegracaoWhatsAppService(
         var numero = NormalizarTelefone(request.NumeroWhatsApp);
         var nome = request.Nome.Trim();
         var provedor = request.Provedor.Trim();
+        if (string.Equals(provedor, "Evolution API", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(request.Instancia))
+            throw new RegraNegocioException("Informe o nome da instância da Evolution API.");
 
         var integracao = await ObterIntegracaoAsync(contaId, rastrear: true, cancellationToken);
         var criando = integracao is null;
@@ -77,6 +79,8 @@ public sealed partial class IntegracaoWhatsAppService(
 
         integracao.Nome = nome;
         integracao.Provedor = provedor;
+        integracao.Instancia = request.Instancia?.Trim();
+        integracao.Status = request.Ativo ? StatusIntegracao.Pendente : StatusIntegracao.Inativa;
         integracao.UrlBaseBridge = request.UrlBaseBridge.Trim().TrimEnd('/');
         integracao.NumeroWhatsApp = numero;
         integracao.Ativo = request.Ativo;
@@ -150,29 +154,34 @@ public sealed partial class IntegracaoWhatsAppService(
 
         try
         {
-            using var cliente = httpClientFactory.CreateClient("BridgeWhatsApp");
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(8));
-
-            var urlSaude = $"{integracao.UrlBaseBridge.TrimEnd('/')}/health";
-            using var resposta = await cliente.GetAsync(urlSaude, cts.Token);
-            if (resposta.IsSuccessStatusCode || resposta.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Unauthorized)
+            var conectada = false;
+            if (EvolutionApiClient.Compativel(integracao))
+                conectada = await new EvolutionApiClient(httpClientFactory, protecao).EstaConectadaAsync(integracao, cancellationToken);
+            else
             {
-                // 404/401 indicam endpoint alcançável mesmo sem health dedicado.
+                using var cliente = httpClientFactory.CreateClient("BridgeWhatsApp");
+                using var limite = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                limite.CancelAfter(TimeSpan.FromSeconds(8));
+                using var resposta = await cliente.GetAsync($"{integracao.UrlBaseBridge.TrimEnd('/')}/health", limite.Token);
+                conectada = resposta.IsSuccessStatusCode;
+            }
+            if (conectada)
+            {
                 integracao.Status = StatusIntegracao.Ativa;
                 integracao.UltimoErro = null;
-                auditoria.Registrar(contaId, usuarioId, "BridgeWhatsAppTesteOk", nameof(IntegracaoWhatsApp), integracao.Id, "Teste de conexão com Bridge bem-sucedido.", null, new { urlSaude, resposta.StatusCode }, ip, userAgent);
+                auditoria.Registrar(contaId, usuarioId, "BridgeWhatsAppTesteOk", nameof(IntegracaoWhatsApp), integracao.Id,
+                    "Teste de conexão com Bridge bem-sucedido.", null, new { integracao.Status }, ip, userAgent);
                 await dbContext.SaveChangesAsync(cancellationToken);
-                return new TesteConexaoBridgeResponse(true, integracao.Status, "Bridge alcançável. Integração marcada como ativa.", testadoEm);
+                return new TesteConexaoBridgeResponse(true, integracao.Status, "Conexão confirmada. Integração ativa.", testadoEm);
             }
 
             integracao.Status = StatusIntegracao.Erro;
-            integracao.UltimoErro = $"Bridge respondeu HTTP {(int)resposta.StatusCode}.";
+            integracao.UltimoErro = "Conexão não confirmada. Verifique a chave de acesso, a instância e o pareamento do número.";
             auditoria.Registrar(contaId, usuarioId, "BridgeWhatsAppTesteFalha", nameof(IntegracaoWhatsApp), integracao.Id, "Teste de conexão com Bridge falhou.", null, new { integracao.UltimoErro }, ip, userAgent);
             await dbContext.SaveChangesAsync(cancellationToken);
             return new TesteConexaoBridgeResponse(false, integracao.Status, integracao.UltimoErro, testadoEm);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException or JsonException)
         {
             integracao.Status = StatusIntegracao.Erro;
             integracao.UltimoErro = "Não foi possível alcançar o Bridge. Verifique a URL e a disponibilidade do serviço.";
@@ -246,7 +255,8 @@ public sealed partial class IntegracaoWhatsAppService(
         item.UltimoErro,
         item.UltimaConexaoTestadaEm,
         item.CriadoEm,
-        item.AtualizadoEm);
+        item.AtualizadoEm,
+        item.Instancia);
 
     private static string MascararToken() => "••••••••••••••••";
 

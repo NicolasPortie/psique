@@ -408,6 +408,8 @@ async function celular() {
     await pagina.waitForLoadState('networkidle');
   }
 
+  await pagina.getByRole('heading', { name: /^(Bom dia|Boa tarde|Boa noite)/ }).waitFor();
+  await pagina.getByText('Agenda de hoje', { exact: true }).waitFor();
   await gravar(sessao, 'celular', { largura: 360, cores: 160 }, async (ator) => {
     await ator.pausa(1500);
     await pagina.evaluate(() => window.scrollBy({ top: 420, behavior: 'smooth' }));

@@ -16,6 +16,46 @@ namespace Psique.Api.Tests;
 public sealed class RelatoriosAdministrativosServiceTests
 {
     [Fact]
+    public async Task Relatorio_DeveExibirDataEHoraNoFusoDaConta()
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        contexto.Add(new ConfiguracaoAtendimento { Id = Guid.NewGuid(), ContaPsicologoId = cenario.ContaId, FusoHorario = "America/Rio_Branco" });
+        var consulta = await contexto.Consultas.SingleAsync(x => x.Id == cenario.Consulta.Id);
+        consulta.InicioEm = new DateTimeOffset(2026, 10, 31, 23, 30, 0, TimeSpan.FromHours(-5)).ToUniversalTime();
+        consulta.FimEm = consulta.InicioEm.AddMinutes(50);
+        consulta.Status = StatusConsulta.Confirmada;
+        await contexto.SaveChangesAsync();
+        var resultado = await CriarService(contexto).GerarAsync(cenario.UsuarioId, cenario.ContaId, "consultas-agendadas",
+            new() { PeriodoInicio = consulta.InicioEm.AddHours(-1), PeriodoFim = consulta.FimEm.AddHours(1) }, null, null, CancellationToken.None);
+        Assert.Contains("31/10/2026 23:30", resultado.Html);
+        Assert.DoesNotContain("01/11/2026 01:30", resultado.Html);
+    }
+
+    [Theory]
+    [InlineData("valores-recebidos")]
+    [InlineData("pagamentos-pendentes")]
+    [InlineData("pacientes-status")]
+    public async Task Relatorios_RespeitamPermissoesDosDadosDeOrigem(string codigo)
+    {
+        await using var contexto = CriarContexto();
+        var cenario = await CriarCenarioAsync(contexto);
+        var perfil = new PerfilAcesso { Id = Guid.NewGuid(), ContaPsicologoId = cenario.ContaId, Nome = "Agenda e relatórios", Permissoes = "Agenda,Relatorios" };
+        var usuario = await contexto.Usuarios.SingleAsync(x => x.Id == cenario.UsuarioId);
+        usuario.Perfil = PerfilUsuario.Personalizado;
+        usuario.PerfilAcessoId = perfil.Id;
+        contexto.Add(perfil);
+        await contexto.SaveChangesAsync();
+        var service = CriarService(contexto);
+        var erro = await Assert.ThrowsAsync<RegraNegocioException>(() => service.GerarAsync(cenario.UsuarioId, cenario.ContaId, codigo,
+            new() { PeriodoInicio = DateTimeOffset.UtcNow.AddDays(-7), PeriodoFim = DateTimeOffset.UtcNow }, null, null, CancellationToken.None));
+        Assert.Equal(StatusCodes.Status403Forbidden, erro.StatusCode);
+        var catalogo = await service.ListarCatalogoAsync(cenario.UsuarioId, cenario.ContaId, CancellationToken.None);
+        Assert.DoesNotContain(catalogo, x => x.Codigo == codigo);
+        Assert.Contains(catalogo, x => x.Codigo == "consultas-agendadas");
+    }
+
+    [Fact]
     public async Task Gerar_SessoesRealizadas_DeveRetornarHtmlComCabecalhoETabela()
     {
         await using var contexto = CriarContexto();

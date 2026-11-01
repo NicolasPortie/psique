@@ -35,8 +35,8 @@ public sealed class RelatoriosAdministrativosService(
         Guid contaId,
         CancellationToken cancellationToken)
     {
-        await autorizacao.ObterUsuarioAtivoAsync(usuarioId, contaId, cancellationToken);
-        return Catalogo;
+        var usuario = await autorizacao.ObterUsuarioAtivoAsync(usuarioId, contaId, cancellationToken);
+        return Catalogo.Where(item => PodeGerar(usuario, item.Codigo)).ToArray();
     }
 
     public async Task<MesEmNumerosResponse> ObterMesEmNumerosAsync(
@@ -105,31 +105,38 @@ public sealed class RelatoriosAdministrativosService(
         string? userAgent,
         CancellationToken cancellationToken)
     {
-        await autorizacao.ObterUsuarioAtivoAsync(usuarioId, contaId, cancellationToken);
+        var usuario = await autorizacao.ObterUsuarioAtivoAsync(usuarioId, contaId, cancellationToken);
         ValidarPeriodo(request);
 
         var item = Catalogo.FirstOrDefault(c => c.Codigo.Equals(codigo, StringComparison.OrdinalIgnoreCase))
             ?? throw new RegraNegocioException("Relatório não encontrado.", StatusCodes.Status404NotFound);
+
+        if (!PodeGerar(usuario, item.Codigo))
+            throw new RegraNegocioException("Você não tem permissão para acessar os dados deste relatório.", StatusCodes.Status403Forbidden);
 
         if (item.ExigePaciente && request.PacienteId is null)
             throw new RegraNegocioException("Este relatório exige a seleção de um paciente.");
 
         var inicio = request.PeriodoInicio.ToUniversalTime();
         var fim = request.PeriodoFim.ToUniversalTime();
+        var fusoConta = await dbContext.ConfiguracoesAtendimento.AsNoTracking()
+            .Where(x => x.ContaPsicologoId == contaId && x.Ativo)
+            .Select(x => x.FusoHorario).FirstOrDefaultAsync(cancellationToken);
+        var fuso = Agenda.FusoHorarioConta.Resolver(fusoConta);
         var contexto = await MontarContextoAsync(contaId, cancellationToken);
 
         var (secaoTitulo, filtrosExtras, indicadores, conteudo) = codigo.ToLowerInvariant() switch
         {
-            "sessoes-realizadas" => await SessoesRealizadasAsync(contaId, inicio, fim, cancellationToken),
-            "consultas-agendadas" => await ConsultasAgendadasAsync(contaId, inicio, fim, cancellationToken),
-            "cancelamentos" => await CancelamentosAsync(contaId, inicio, fim, cancellationToken),
-            "faltas" => await FaltasAsync(contaId, inicio, fim, cancellationToken),
+            "sessoes-realizadas" => await SessoesRealizadasAsync(contaId, inicio, fim, fuso, cancellationToken),
+            "consultas-agendadas" => await ConsultasAgendadasAsync(contaId, inicio, fim, fuso, cancellationToken),
+            "cancelamentos" => await CancelamentosAsync(contaId, inicio, fim, fuso, cancellationToken),
+            "faltas" => await FaltasAsync(contaId, inicio, fim, fuso, cancellationToken),
             "taxa-comparecimento" => await TaxaComparecimentoAsync(contaId, inicio, fim, cancellationToken),
-            "pacientes-status" => await PacientesStatusAsync(contaId, cancellationToken),
-            "valores-recebidos" => await ValoresRecebidosAsync(contaId, inicio, fim, cancellationToken),
-            "pagamentos-pendentes" => await PagamentosPendentesAsync(contaId, inicio, fim, cancellationToken),
-            "horarios-ocupados" => await HorariosOcupadosAsync(contaId, inicio, fim, cancellationToken),
-            "historico-atendimentos-paciente" => await HistoricoPacienteAsync(contaId, request.PacienteId!.Value, inicio, fim, cancellationToken),
+            "pacientes-status" => await PacientesStatusAsync(contaId, fuso, cancellationToken),
+            "valores-recebidos" => await ValoresRecebidosAsync(contaId, inicio, fim, fuso, cancellationToken),
+            "pagamentos-pendentes" => await PagamentosPendentesAsync(contaId, inicio, fim, fuso, cancellationToken),
+            "horarios-ocupados" => await HorariosOcupadosAsync(contaId, inicio, fim, fuso, cancellationToken),
+            "historico-atendimentos-paciente" => await HistoricoPacienteAsync(contaId, request.PacienteId!.Value, inicio, fim, fuso, cancellationToken),
             _ => throw new RegraNegocioException("Relatório não encontrado.", StatusCodes.Status404NotFound)
         };
 
@@ -138,9 +145,9 @@ public sealed class RelatoriosAdministrativosService(
             ["titulo"] = RelatorioHtmlRenderer.Codificar(item.Nome),
             ["nome_consultorio"] = RelatorioHtmlRenderer.Codificar(contexto.NomeConta),
             ["nome_profissional"] = RelatorioHtmlRenderer.Codificar(contexto.NomeProfissional),
-            ["gerado_em"] = RelatorioHtmlRenderer.Codificar(DateTimeOffset.Now.ToString("dd/MM/yyyy HH:mm", Cultura)),
+            ["gerado_em"] = RelatorioHtmlRenderer.Codificar(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, fuso).ToString("dd/MM/yyyy HH:mm", Cultura)),
             ["conta_id_curto"] = RelatorioHtmlRenderer.Codificar(contaId.ToString("N")[..8]),
-            ["periodo"] = RelatorioHtmlRenderer.Codificar($"{inicio.ToLocalTime():dd/MM/yyyy} a {fim.ToLocalTime():dd/MM/yyyy}"),
+            ["periodo"] = RelatorioHtmlRenderer.Codificar($"{TimeZoneInfo.ConvertTime(inicio, fuso):dd/MM/yyyy} a {TimeZoneInfo.ConvertTime(fim, fuso):dd/MM/yyyy}"),
             ["filtros_extras"] = filtrosExtras,
             ["indicadores"] = indicadores,
             ["secao_titulo"] = RelatorioHtmlRenderer.Codificar(secaoTitulo),
@@ -165,7 +172,7 @@ public sealed class RelatoriosAdministrativosService(
         return new RelatorioGeradoResponse(item.Codigo, item.Nome, html, DateTimeOffset.UtcNow, inicio, fim);
     }
 
-    private async Task<(string, string, string, string)> SessoesRealizadasAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, CancellationToken ct)
+    private async Task<(string, string, string, string)> SessoesRealizadasAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, TimeZoneInfo fuso, CancellationToken ct)
     {
         var itens = await dbContext.RegistrosSessao.AsNoTracking()
             .Include(x => x.Paciente)
@@ -183,7 +190,7 @@ public sealed class RelatoriosAdministrativosService(
 
         var linhas = itens.Select(x => (IReadOnlyList<string>)
         [
-            x.DataSessao.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Cultura),
+            TimeZoneInfo.ConvertTime(x.DataSessao, fuso).ToString("dd/MM/yyyy HH:mm", Cultura),
             x.Paciente,
             x.Tipo,
             x.Status.ToString()
@@ -196,7 +203,7 @@ public sealed class RelatoriosAdministrativosService(
             RelatorioHtmlRenderer.Tabela(["Data", "Paciente", "Tipo", "Status"], linhas));
     }
 
-    private async Task<(string, string, string, string)> ConsultasAgendadasAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, CancellationToken ct)
+    private async Task<(string, string, string, string)> ConsultasAgendadasAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, TimeZoneInfo fuso, CancellationToken ct)
     {
         var statusAtivos = new[]
         {
@@ -217,7 +224,7 @@ public sealed class RelatoriosAdministrativosService(
 
         var linhas = itens.Select(x => (IReadOnlyList<string>)
         [
-            x.InicioEm.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Cultura),
+            TimeZoneInfo.ConvertTime(x.InicioEm, fuso).ToString("dd/MM/yyyy HH:mm", Cultura),
             x.Paciente.NomeCompleto,
             x.TipoAtendimento.Nome,
             RotuloStatusConsulta(x.Status),
@@ -231,7 +238,7 @@ public sealed class RelatoriosAdministrativosService(
             RelatorioHtmlRenderer.Tabela(["Início", "Paciente", "Tipo", "Status", "Modalidade"], linhas));
     }
 
-    private async Task<(string, string, string, string)> CancelamentosAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, CancellationToken ct)
+    private async Task<(string, string, string, string)> CancelamentosAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, TimeZoneInfo fuso, CancellationToken ct)
     {
         var itens = await dbContext.Consultas.AsNoTracking()
             .Include(x => x.Paciente)
@@ -245,7 +252,7 @@ public sealed class RelatoriosAdministrativosService(
 
         var linhas = itens.Select(x => (IReadOnlyList<string>)
         [
-            x.InicioEm.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Cultura),
+            TimeZoneInfo.ConvertTime(x.InicioEm, fuso).ToString("dd/MM/yyyy HH:mm", Cultura),
             x.Paciente.NomeCompleto,
             x.TipoAtendimento.Nome,
             x.JustificativaCancelamento ?? "—"
@@ -258,7 +265,7 @@ public sealed class RelatoriosAdministrativosService(
             RelatorioHtmlRenderer.Tabela(["Data prevista", "Paciente", "Tipo", "Justificativa"], linhas));
     }
 
-    private async Task<(string, string, string, string)> FaltasAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, CancellationToken ct)
+    private async Task<(string, string, string, string)> FaltasAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, TimeZoneInfo fuso, CancellationToken ct)
     {
         var itens = await dbContext.Consultas.AsNoTracking()
             .Include(x => x.Paciente)
@@ -272,7 +279,7 @@ public sealed class RelatoriosAdministrativosService(
 
         var linhas = itens.Select(x => (IReadOnlyList<string>)
         [
-            x.InicioEm.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Cultura),
+            TimeZoneInfo.ConvertTime(x.InicioEm, fuso).ToString("dd/MM/yyyy HH:mm", Cultura),
             x.Paciente.NomeCompleto,
             x.TipoAtendimento.Nome,
             RotuloModalidade(x.Modalidade)
@@ -320,7 +327,7 @@ public sealed class RelatoriosAdministrativosService(
             RelatorioHtmlRenderer.Tabela(["Indicador", "Valor"], linhas));
     }
 
-    private async Task<(string, string, string, string)> PacientesStatusAsync(Guid contaId, CancellationToken ct)
+    private async Task<(string, string, string, string)> PacientesStatusAsync(Guid contaId, TimeZoneInfo fuso, CancellationToken ct)
     {
         var itens = await dbContext.Pacientes.AsNoTracking()
             .Where(x => x.ContaPsicologoId == contaId)
@@ -339,7 +346,7 @@ public sealed class RelatoriosAdministrativosService(
             x.Status.ToString(),
             x.Email ?? "—",
             x.Telefone ?? "—",
-            x.CriadoEm.ToLocalTime().ToString("dd/MM/yyyy", Cultura)
+            TimeZoneInfo.ConvertTime(x.CriadoEm, fuso).ToString("dd/MM/yyyy", Cultura)
         ]).ToList();
 
         return (
@@ -353,7 +360,7 @@ public sealed class RelatoriosAdministrativosService(
             RelatorioHtmlRenderer.Tabela(["Paciente", "Status", "E-mail", "Telefone", "Cadastro"], linhas));
     }
 
-    private async Task<(string, string, string, string)> ValoresRecebidosAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, CancellationToken ct)
+    private async Task<(string, string, string, string)> ValoresRecebidosAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, TimeZoneInfo fuso, CancellationToken ct)
     {
         var itens = await dbContext.Pagamentos.AsNoTracking()
             .Include(x => x.Paciente)
@@ -368,7 +375,7 @@ public sealed class RelatoriosAdministrativosService(
         var total = itens.Sum(x => x.Valor);
         var linhas = itens.Select(x => (IReadOnlyList<string>)
         [
-            x.PagoEm!.Value.ToLocalTime().ToString("dd/MM/yyyy", Cultura),
+            TimeZoneInfo.ConvertTime(x.PagoEm!.Value, fuso).ToString("dd/MM/yyyy", Cultura),
             x.Paciente.NomeCompleto,
             x.Valor.ToString("C", Cultura),
             x.FormaPagamento.ToString()
@@ -383,7 +390,7 @@ public sealed class RelatoriosAdministrativosService(
             RelatorioHtmlRenderer.Tabela(["Pago em", "Paciente", "Valor", "Forma"], linhas));
     }
 
-    private async Task<(string, string, string, string)> PagamentosPendentesAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, CancellationToken ct)
+    private async Task<(string, string, string, string)> PagamentosPendentesAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, TimeZoneInfo fuso, CancellationToken ct)
     {
         var statusPendentes = new[] { StatusPagamento.Pendente, StatusPagamento.AguardandoConfirmacao };
         var itens = await dbContext.Pagamentos.AsNoTracking()
@@ -401,7 +408,7 @@ public sealed class RelatoriosAdministrativosService(
             x.Paciente.NomeCompleto,
             x.Valor.ToString("C", Cultura),
             x.Status.ToString(),
-            x.VencimentoEm?.ToLocalTime().ToString("dd/MM/yyyy", Cultura) ?? "Sem vencimento"
+            x.VencimentoEm is { } vencimento ? TimeZoneInfo.ConvertTime(vencimento, fuso).ToString("dd/MM/yyyy", Cultura) : "Sem vencimento"
         ]).ToList();
 
         return (
@@ -413,7 +420,7 @@ public sealed class RelatoriosAdministrativosService(
             RelatorioHtmlRenderer.Tabela(["Paciente", "Valor", "Status", "Vencimento"], linhas));
     }
 
-    private async Task<(string, string, string, string)> HorariosOcupadosAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, CancellationToken ct)
+    private async Task<(string, string, string, string)> HorariosOcupadosAsync(Guid contaId, DateTimeOffset inicio, DateTimeOffset fim, TimeZoneInfo fuso, CancellationToken ct)
     {
         var consultas = await dbContext.Consultas.AsNoTracking()
             .Where(x => x.ContaPsicologoId == contaId &&
@@ -427,8 +434,8 @@ public sealed class RelatoriosAdministrativosService(
         var agrupado = consultas
             .GroupBy(x => new
             {
-                Dia = x.ToLocalTime().ToString("dddd", Cultura),
-                Hora = x.ToLocalTime().Hour
+                Dia = TimeZoneInfo.ConvertTime(x, fuso).ToString("dddd", Cultura),
+                Hora = TimeZoneInfo.ConvertTime(x, fuso).Hour
             })
             .Select(g => new
             {
@@ -463,6 +470,7 @@ public sealed class RelatoriosAdministrativosService(
         Guid pacienteId,
         DateTimeOffset inicio,
         DateTimeOffset fim,
+        TimeZoneInfo fuso,
         CancellationToken ct)
     {
         var paciente = await dbContext.Pacientes.AsNoTracking()
@@ -480,7 +488,7 @@ public sealed class RelatoriosAdministrativosService(
 
         var linhas = consultas.Select(x => (IReadOnlyList<string>)
         [
-            x.InicioEm.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Cultura),
+            TimeZoneInfo.ConvertTime(x.InicioEm, fuso).ToString("dd/MM/yyyy HH:mm", Cultura),
             x.TipoAtendimento.Nome,
             RotuloStatusConsulta(x.Status),
             RotuloModalidade(x.Modalidade)
@@ -504,6 +512,19 @@ public sealed class RelatoriosAdministrativosService(
             .FirstOrDefaultAsync(ct);
 
         return (conta.NomeConta, string.IsNullOrWhiteSpace(profissional) ? "Profissional" : profissional);
+    }
+
+    private static bool PodeGerar(Models.Usuario usuario, string codigo)
+    {
+        var permissoes = PermissoesEfetivas.Para(usuario);
+        if (!permissoes.Contains(PermissaoAcesso.Relatorios)) return false;
+        return codigo switch
+        {
+            "valores-recebidos" or "pagamentos-pendentes" => permissoes.Contains(PermissaoAcesso.Financeiro),
+            "pacientes-status" => permissoes.Contains(PermissaoAcesso.Pacientes),
+            "historico-atendimentos-paciente" => permissoes.Contains(PermissaoAcesso.Pacientes) && permissoes.Contains(PermissaoAcesso.Agenda),
+            _ => permissoes.Contains(PermissaoAcesso.Agenda)
+        };
     }
 
     private static void ValidarPeriodo(GerarRelatorioRequest request)

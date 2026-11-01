@@ -31,14 +31,16 @@ const schema = z.object({
   provedor: z.string().trim().min(2, 'Informe o provedor.'),
   urlBaseBridge: z.string().trim().min(8, 'Informe o endereço do Bridge.'),
   token: z.string(),
+  instancia: z.string().trim().max(100),
   numeroWhatsApp: z.string().trim().min(8, 'Informe o número conectado.'),
   ativo: z.boolean(),
 });
 type Formulario = z.infer<typeof schema>;
 
 const iniciais: Formulario = {
-  nome: 'WhatsApp Bridge',
-  provedor: 'Bridge',
+  nome: 'WhatsApp do consultório',
+  provedor: 'Evolution API',
+  instancia: '',
   urlBaseBridge: '',
   token: '',
   numeroWhatsApp: '',
@@ -71,6 +73,7 @@ export default function WhatsAppIntegracaoPage() {
       reset({
         nome: integracao.nome,
         provedor: integracao.provedor,
+        instancia: integracao.instancia ?? '',
         urlBaseBridge: integracao.urlBaseBridge,
         token: '',
         numeroWhatsApp: integracao.numeroWhatsApp,
@@ -84,6 +87,7 @@ export default function WhatsAppIntegracaoPage() {
       salvarIntegracaoWhatsApp({
         nome: valores.nome.trim(),
         provedor: valores.provedor.trim(),
+        instancia: valores.instancia.trim() || null,
         urlBaseBridge: valores.urlBaseBridge.trim(),
         token: valores.token.trim() || null,
         numeroWhatsApp: valores.numeroWhatsApp.trim(),
@@ -167,8 +171,16 @@ export default function WhatsAppIntegracaoPage() {
                 <Entrada type="password" autoComplete="new-password" {...register('token')} />
               </Campo>
               <Campo
+                rotulo="Nome da instância"
+                dica="Use o mesmo nome cadastrado na Evolution API."
+                erro={errors.instancia?.message}
+                className="sm:col-span-2"
+              >
+                <Entrada autoComplete="off" {...register('instancia')} />
+              </Campo>
+              <Campo
                 rotulo="Endereço do serviço de conexão"
-                dica="Endereço do Bridge, informado por quem configurou o WhatsApp."
+                dica="Endereço da Evolution API, informado por quem configurou o WhatsApp."
                 erro={errors.urlBaseBridge?.message}
                 className="sm:col-span-2"
               >

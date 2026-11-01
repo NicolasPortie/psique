@@ -296,8 +296,8 @@ public sealed class IntegridadeRelacionalTests(BancoIntegridadeRelacional banco)
                 var protocolo = await db.ProtocolosEntregaDocumento.Include(x => x.VersaoDocumentoProntuario).SingleAsync(x => x.Id == protocoloId);
                 Assert.Equal(versao.Id, protocolo.VersaoDocumentoProntuarioId);
                 Assert.Equal("conteudo-legado-protegido", protocolo.VersaoDocumentoProntuario.ConteudoJson);
-                Assert.Equal(19, (await dbMigracao.Database.GetAppliedMigrationsAsync()).Count());
-                Assert.Equal(79, await db.Database.SqlQueryRaw<int>("SELECT COUNT(*) AS [Value] FROM sys.foreign_keys").SingleAsync());
+                Assert.Equal(dbMigracao.Database.GetMigrations().Count(), (await dbMigracao.Database.GetAppliedMigrationsAsync()).Count());
+                Assert.Equal(80, await db.Database.SqlQueryRaw<int>("SELECT COUNT(*) AS [Value] FROM sys.foreign_keys").SingleAsync());
                 Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT COUNT(*) AS [Value] FROM sys.foreign_keys WHERE is_disabled = 1 OR is_not_trusted = 1").SingleAsync());
             }
             else

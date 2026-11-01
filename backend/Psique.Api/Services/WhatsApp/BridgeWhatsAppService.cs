@@ -33,13 +33,19 @@ public sealed partial class BridgeWhatsAppService(
 
         var tokenHash = protecao.HashToken(tokenBridge.Trim());
         var integracao = await dbContext.IntegracoesWhatsApp
+            .Include(item => item.ContaPsicologo)
             .SingleOrDefaultAsync(item => item.TokenHash == tokenHash && item.Ativo, cancellationToken)
             ?? throw new RegraNegocioException("Integração Bridge não autorizada.", StatusCodes.Status401Unauthorized);
 
         if (integracao.Status is StatusIntegracao.Inativa)
             throw new RegraNegocioException("Integração Bridge inativa.", StatusCodes.Status403Forbidden);
+        if (integracao.ContaPsicologo.Status != StatusContaPsicologo.Ativa)
+            throw new RegraNegocioException("A conta não está ativa para receber mensagens.", StatusCodes.Status403Forbidden);
 
         var telefone = NormalizarTelefone(request.Telefone);
+        await using var travaConfirmacao = !string.IsNullOrWhiteSpace(request.MensagemExternaId)
+            ? await Shared.Concorrencia.TravaOperacao.AdquirirAsync(dbContext,
+                $"confirmacao-whatsapp:{integracao.ContaPsicologoId:N}:{request.MensagemExternaId}", cancellationToken) : null;
         var payloadMinimo = new
         {
             request.TipoEvento,
@@ -71,6 +77,14 @@ public sealed partial class BridgeWhatsAppService(
             IntegracaoWhatsAppId = integracao.Id,
             EventoExternoId = string.IsNullOrWhiteSpace(request.EventoExternoId) ? null : request.EventoExternoId.Trim(),
             TipoEvento = request.TipoEvento.Trim(),
+            MensagemExternaId = request.MensagemExternaId,
+            StatusMensagem = request.TipoEvento.Trim().ToLowerInvariant() switch
+            {
+                "mensagem.entregue" or "message.delivered" => StatusMensagemWhatsApp.Entregue,
+                "mensagem.lida" or "message.read" => StatusMensagemWhatsApp.Lida,
+                "mensagem.falhou" or "message.failed" => StatusMensagemWhatsApp.Falhou,
+                _ => null
+            },
             PayloadHash = payloadHash,
             PayloadJson = payloadJson,
             Processado = false,
@@ -102,8 +116,13 @@ public sealed partial class BridgeWhatsAppService(
 
             evento.Processado = true;
             evento.ProcessadoEm = DateTimeOffset.UtcNow;
-            integracao.Status = StatusIntegracao.Ativa;
-            integracao.UltimoErro = null;
+            // A chegada de uma mensagem/ACK não confirma a conexão atual da Evolution.
+            // O contrato genérico legado conserva seu comportamento de sinal de atividade.
+            if (!EvolutionApiClient.Compativel(integracao))
+            {
+                integracao.Status = StatusIntegracao.Ativa;
+                integracao.UltimoErro = null;
+            }
             integracao.AtualizadoEm = DateTimeOffset.UtcNow;
 
             auditoria.Registrar(
@@ -270,6 +289,9 @@ public sealed partial class BridgeWhatsAppService(
         if (mensagem is null)
             return;
 
+        // Webhooks podem chegar fora de ordem. Uma confirmação antiga não regride leitura/entrega.
+        if (mensagem.Status == StatusMensagemWhatsApp.Lida ||
+            (mensagem.Status == StatusMensagemWhatsApp.Entregue && status != StatusMensagemWhatsApp.Lida)) return;
         mensagem.Status = status;
         if (status == StatusMensagemWhatsApp.Entregue || status == StatusMensagemWhatsApp.Enviada)
             mensagem.EnviadaEm ??= DateTimeOffset.UtcNow;
@@ -307,7 +329,7 @@ public sealed partial class BridgeWhatsAppService(
         var candidatos = new HashSet<string>(StringComparer.Ordinal) { telefone };
         if (telefone.StartsWith("55", StringComparison.Ordinal) && telefone.Length > 11)
             candidatos.Add(telefone[2..]);
-        if (telefone.Length >= 10)
+        if (telefone.Length >= 11)
             candidatos.Add(telefone[^11..].TrimStart('0'));
         foreach (var numero in candidatos.ToArray())
         {

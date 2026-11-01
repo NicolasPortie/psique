@@ -7,13 +7,36 @@ import type { AutenticacaoResponse, CriarContaRequest, EstadoSessao, LoginReques
 let estado: EstadoSessao = { status: 'verificando', usuario: null, accessToken: null };
 const ouvintes = new Set<() => void>();
 let renovacaoEmAndamento: Promise<boolean> | null = null;
+let versaoSessao = 0;
+let contextoAcesso = 0;
+let acessoInvalidado = false;
+const canalSessao = typeof window !== 'undefined' && typeof window.BroadcastChannel === 'function'
+  ? new window.BroadcastChannel('psique:sessao')
+  : null;
+
+if (canalSessao) canalSessao.onmessage = (evento: MessageEvent<unknown>) => {
+  if (typeof evento.data !== 'object' || evento.data === null || !('tipo' in evento.data) || evento.data.tipo !== 'acesso-alterado') return;
+  versaoSessao++;
+  contextoAcesso++;
+  acessoInvalidado = true;
+  publicar({ status: 'anonimo', usuario: null, accessToken: null });
+};
 
 function publicar(novoEstado: EstadoSessao) {
   estado = novoEstado;
   ouvintes.forEach((ouvinte) => ouvinte());
 }
 
-function aplicarAutenticacao(resposta: AutenticacaoResponse) {
+function iniciarTrocaDeAcesso() {
+  acessoInvalidado = false;
+  versaoSessao++;
+  canalSessao?.postMessage({ tipo: 'acesso-alterado' });
+  return ++contextoAcesso;
+}
+
+function aplicarAutenticacao(resposta: AutenticacaoResponse, contextoEsperado = contextoAcesso) {
+  if (contextoEsperado !== contextoAcesso) throw new Error('Esta solicitação de acesso foi substituída. Entre novamente.');
+  versaoSessao++;
   publicar({ status: 'autenticado', usuario: resposta.usuario, accessToken: resposta.accessToken });
 }
 
@@ -38,22 +61,24 @@ export function useSessao() {
 }
 
 export async function entrar(request: LoginRequest) {
+  const contexto = iniciarTrocaDeAcesso();
   const envelope = await requisicaoPublica<RespostaApi<AutenticacaoResponse>>('/autenticacao/login', {
     method: 'POST',
     body: request,
   });
   const autenticacao = extrairDados(envelope, 'Não foi possível entrar.');
-  aplicarAutenticacao(autenticacao);
+  aplicarAutenticacao(autenticacao, contexto);
   return autenticacao;
 }
 
 export async function criarConta(request: CriarContaRequest) {
+  const contexto = iniciarTrocaDeAcesso();
   const envelope = await requisicaoPublica<RespostaApi<AutenticacaoResponse>>('/autenticacao/cadastro', {
     method: 'POST',
     body: request,
   });
   const autenticacao = extrairDados(envelope, 'Não foi possível criar a conta.');
-  aplicarAutenticacao(autenticacao);
+  aplicarAutenticacao(autenticacao, contexto);
   return autenticacao;
 }
 
@@ -84,15 +109,19 @@ export async function confirmarEmailCadastro(email: string, identificador: strin
 
 /** Troca a senha da sessão ativa. O servidor encerra as outras sessões e devolve uma nova para esta. */
 export async function alterarSenha(senhaAtual: string, novaSenha: string) {
+  const contexto = iniciarTrocaDeAcesso();
   const envelope = await requisicaoApi<RespostaApi<AutenticacaoResponse>>('/autenticacao/senha/alterar', {
     method: 'POST',
     body: { senhaAtual, novaSenha },
   });
-  aplicarAutenticacao(extrairDados(envelope, 'Não foi possível alterar a senha.'));
+  aplicarAutenticacao(extrairDados(envelope, 'Não foi possível alterar a senha.'), contexto);
 }
 
 export async function renovarSessao(): Promise<boolean> {
+  if (acessoInvalidado) return false;
   if (renovacaoEmAndamento) return renovacaoEmAndamento;
+  const versaoAoIniciar = versaoSessao;
+  const usuarioAoIniciar = estado.usuario?.id;
 
   renovacaoEmAndamento = (async () => {
     try {
@@ -100,10 +129,19 @@ export async function renovarSessao(): Promise<boolean> {
         method: 'POST',
         body: {},
       });
-      aplicarAutenticacao(extrairDados(envelope, 'Sessão expirada.'));
+      if (versaoAoIniciar !== versaoSessao) return false;
+      const autenticacao = extrairDados(envelope, 'Sessão expirada.');
+      if (usuarioAoIniciar && autenticacao.usuario.id !== usuarioAoIniciar) {
+        acessoInvalidado = true;
+        versaoSessao++;
+        contextoAcesso++;
+        publicar({ status: 'anonimo', usuario: null, accessToken: null });
+        return false;
+      }
+      aplicarAutenticacao(autenticacao);
       return true;
     } catch {
-      publicar({ status: 'anonimo', usuario: null, accessToken: null });
+      if (versaoAoIniciar === versaoSessao) publicar({ status: 'anonimo', usuario: null, accessToken: null });
       return false;
     } finally {
       renovacaoEmAndamento = null;
@@ -119,11 +157,12 @@ export async function restaurarSessao() {
 }
 
 export async function sair() {
-  try {
-    await requisicaoApi<void>('/autenticacao/sair', { method: 'POST', body: {} });
-  } finally {
-    publicar({ status: 'anonimo', usuario: null, accessToken: null });
-  }
+  iniciarTrocaDeAcesso();
+  // A requisição captura o token atual antes de limpar a sessão e seu cache.
+  const encerramento = requisicaoApi<void>('/autenticacao/sair', { method: 'POST', body: {}, repetirAposRenovar: false });
+  acessoInvalidado = true;
+  publicar({ status: 'anonimo', usuario: null, accessToken: null });
+  await encerramento;
 }
 
 export async function solicitarRecuperacaoSenha(email: string) {
@@ -141,6 +180,7 @@ export async function redefinirSenha(token: string, novaSenha: string) {
 }
 
 configurarAutenticacaoApi({
+  obterContexto: () => contextoAcesso,
   obterToken: () => (estado.status === 'autenticado' ? estado.accessToken : null),
   renovar: renovarSessao,
 });

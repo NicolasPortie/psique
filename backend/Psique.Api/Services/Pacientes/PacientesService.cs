@@ -692,6 +692,7 @@ public sealed class PacientesService(
             return null;
         }
 
+        if (valor.Contains('@')) return NormalizarEmail(valor);
         var email = NormalizarEmail(valor);
         var digitos = NormalizarDigitos(valor);
         return !string.IsNullOrWhiteSpace(digitos) ? digitos : email;

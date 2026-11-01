@@ -90,6 +90,8 @@ Consulta que terminou e continua aguardando, agendada ou confirmada está "sem d
 - "Vencido" não é status no banco: é o pagamento Pendente/Aguardando com `VencimentoEm` anterior a hoje. A listagem aceita `vencidos=true` e os totais trazem `vencido`.
 - Paciente, período (`de`, `ate`, pelo vencimento ou pagamento) e busca por nome recortam a lista e os totais; o estado recorta só a lista.
 - Ao receber, a equipe informa a forma (Pix, cartão, dinheiro, transferência, outra).
+- Uma cobrança Pendente ou Aguardando confirmação pode ser recebida ou cancelada. Uma cobrança Paga pode ser reembolsada; Cancelada e Reembolsada são estados finais. O reembolso preserva a data original do recebimento. Alterações concorrentes de estado retornam conflito (409), sem sobrescrever a alteração anterior.
+- Períodos, vencimentos e datas de referência usam o fuso configurado do consultório. A exportação sem mês selecionado cobre os últimos 12 meses, incluindo o atual; o CSV trata nomes e observações como texto, sem fórmulas.
 - `GET /pagamentos/recibo-mensal?pacienteId&ano&mes` junta num recibo todos os pagamentos recebidos do paciente no mês (auditado como "ReciboMensalEmitido").
 - `GET /pagamentos/exportacao?de&ate` devolve os recebimentos do período com CPF do pagador, para o contador ou o Carnê-Leão; a tela gera um CSV com ponto e vírgula. Auditado como "RecebimentosExportados".
 - `GET /pagamentos/{id}/recibo` devolve os dados do recibo apenas para pagamento recebido: paciente (com CPF, se houver), valor, data, forma, sessão de referência e nome e CRP do psicólogo. Sem nome e CRP cadastrados, a emissão é recusada. Cada emissão fica na auditoria ("ReciboEmitido").
@@ -111,6 +113,13 @@ O painel traz `aniversariantes` (ativos com aniversário nos próximos 7 dias) e
 ## Lembretes Vencidos
 
 O processador não repega por 15 minutos um lembrete já tentado (e-mail desligado, canal interno), para os travados não ocuparem o lote. Lembrete cuja consulta já começou é encerrado como Ignorado ("LembreteExpirado").
+
+A criação exige um horário anterior ao início da consulta. O reenvio manual
+também confere a situação e o início do atendimento antes de chamar o transporte;
+consultas encerradas ou já iniciadas tornam o lembrete Ignorado. O processador
+automático só seleciona contas ativas. O destinatário é decifrado no serviço,
+imediatamente antes do transporte de e-mail. Datas e horários dos modelos usam o
+fuso configurado da conta.
 
 ## Responsavel e Contato de Emergencia
 
@@ -159,6 +168,25 @@ Regras:
 - fontes usadas devem ser rastreaveis.
 
 ## WhatsApp
+
+### Confirmação de lembretes por e-mail
+
+Antes de chamar o SMTP, o back-end persiste `EnvioEmailIniciadoEm` no lembrete.
+O marcador fica preservado mesmo após o aceite do transporte. Se o processo
+interromper antes de registrar o resultado, o próximo processamento marca a
+tentativa como Falhou e informa que é preciso conferir o envio no serviço de
+e-mail. Não envia novamente nem permite reprocessar a mesma tentativa incerta.
+Depois da conferência, a equipe pode criar um novo lembrete quando necessário.
+
+E-mail desabilitado ou paciente sem endereço são verificados antes do marcador;
+esses casos não representam uma tentativa entregue ao SMTP. O controle reduz
+duplicações após uma queda, sem prometer entrega exatamente uma vez.
+
+### Estado de conexão da Evolution
+
+Mensagens recebidas e confirmações de entrega/leitura não atestam a conexão
+atual da Evolution. Somente o teste autenticado e os eventos de conexão atualizam
+esse estado. Uma confirmação atrasada não reativa uma conexão desconectada.
 
 ```txt
 Paciente envia mensagem

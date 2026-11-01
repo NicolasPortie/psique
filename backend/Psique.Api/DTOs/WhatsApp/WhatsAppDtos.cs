@@ -15,7 +15,8 @@ public sealed record IntegracaoWhatsAppResponse(
     string? UltimoErro,
     DateTimeOffset? UltimaConexaoTestadaEm,
     DateTimeOffset CriadoEm,
-    DateTimeOffset? AtualizadoEm);
+    DateTimeOffset? AtualizadoEm,
+    string? Instancia = null);
 
 public sealed class SalvarIntegracaoWhatsAppRequest
 {
@@ -23,7 +24,10 @@ public sealed class SalvarIntegracaoWhatsAppRequest
     public string Nome { get; init; } = string.Empty;
 
     [Required, StringLength(120, MinimumLength = 2)]
-    public string Provedor { get; init; } = "Bridge";
+    public string Provedor { get; init; } = "Evolution API";
+
+    [StringLength(100)]
+    public string? Instancia { get; init; }
 
     [Required, StringLength(500, MinimumLength = 8)]
     public string UrlBaseBridge { get; init; } = string.Empty;

@@ -773,6 +773,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasKey(pagamento => pagamento.Id);
 
             entity.Property(pagamento => pagamento.Valor).HasPrecision(12, 2);
+            entity.Property(pagamento => pagamento.Status).IsConcurrencyToken();
             entity.HasIndex(pagamento => new { pagamento.ContaPsicologoId, pagamento.PacienteId, pagamento.Competencia }).HasFilter("[Competencia] IS NOT NULL");
             entity.Property(pagamento => pagamento.Observacao).HasMaxLength(1000);
 
@@ -926,6 +927,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasKey(mensagem => mensagem.Id);
 
             entity.Property(mensagem => mensagem.MensagemExternaId).HasMaxLength(180);
+            entity.HasIndex(mensagem => new { mensagem.ContaPsicologoId, mensagem.LembreteId })
+                .IsUnique().HasFilter("[LembreteId] IS NOT NULL");
+            entity.HasOne<Lembrete>().WithMany()
+                .HasPrincipalKey(lembrete => new { lembrete.ContaPsicologoId, lembrete.Id })
+                .HasForeignKey(mensagem => new { mensagem.ContaPsicologoId, mensagem.LembreteId })
+                .OnDelete(DeleteBehavior.Restrict);
             entity.Property(mensagem => mensagem.Conteudo).HasColumnType("nvarchar(max)");
             entity.Property(mensagem => mensagem.ErroEnvio).HasMaxLength(2000);
 
@@ -947,6 +954,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             entity.Property(evento => evento.EventoExternoId).HasMaxLength(180);
             entity.Property(evento => evento.TipoEvento).HasMaxLength(120).IsRequired();
+            entity.Property(evento => evento.MensagemExternaId).HasMaxLength(180);
+            entity.HasIndex(evento => new { evento.ContaPsicologoId, evento.MensagemExternaId });
             entity.Property(evento => evento.PayloadHash).HasMaxLength(128);
             entity.Property(evento => evento.PayloadJson).IsRequired();
             entity.Property(evento => evento.ErroProcessamento).HasMaxLength(2000);

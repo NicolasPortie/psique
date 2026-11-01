@@ -101,7 +101,11 @@ export default function PagamentosPage() {
   });
 
   const exportar = useMutation({
-    mutationFn: () => exportarRecebimentos(paraCampoData(mes ?? new Date(new Date().getFullYear() - 1, 0, 1)), paraCampoData(fimMes ?? new Date())),
+    mutationFn: () => {
+      const hoje = new Date();
+      const inicio = mes ?? new Date(hoje.getFullYear(), hoje.getMonth() - 11, 1);
+      return exportarRecebimentos(paraCampoData(inicio), paraCampoData(fimMes ?? hoje));
+    },
     onSuccess: (itens) => {
       if (itens.length === 0) {
         notificar.info('Nenhum recebimento no período.');
@@ -133,7 +137,7 @@ export default function PagamentosPage() {
               itens={[
                 { rotulo: `Gerar mensalidades de ${rotuloMes}`, icone: <CalendarRange size={16} />, aoSelecionar: () => setConfirmandoMensalidades(true) },
                 {
-                  rotulo: mes ? `Exportar recebimentos de ${rotuloMes}` : 'Exportar recebimentos dos últimos meses',
+                  rotulo: mes ? `Exportar recebimentos de ${rotuloMes}` : 'Exportar recebimentos dos últimos 12 meses',
                   icone: <Download size={16} />,
                   aoSelecionar: () => exportar.mutate(),
                 },

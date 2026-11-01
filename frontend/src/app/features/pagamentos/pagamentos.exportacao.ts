@@ -4,9 +4,10 @@ import { rotulosFormaPagamento } from './pagamentos.rotulos';
 const dataBr = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const BOM = '﻿';
 
-/** Célula de CSV com ponto e vírgula (padrão do Excel em português): aspas quando há separador, aspas ou quebra. */
+/** Célula de texto: neutraliza fórmulas e escapa separadores, aspas e quebras. */
 function celula(valor: string) {
-  return /[";\n]/.test(valor) ? `"${valor.replace(/"/g, '""')}"` : valor;
+  const texto = /^\s*[=+\-@]|^[\t\r\n]/.test(valor) ? `'${valor}` : valor;
+  return /[";\r\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
 }
 
 /** Planilha dos recebimentos, com BOM para os acentos abrirem certos no Excel. */

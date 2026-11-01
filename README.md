@@ -9,6 +9,11 @@ Aplicação de gestão para consultórios de psicólogos autônomos. Organiza pa
 agenda, consultas, prontuário e pagamentos, com separação entre acesso administrativo
 e clínico e isolamento dos dados por conta.
 
+Projeto de portfólio com demonstração local e dados fictícios. Não é necessário
+contratar domínio, SMTP ou WhatsApp para explorar pacientes, agenda, prontuário
+e financeiro. As integrações externas são opcionais na demonstração; seus
+contratos e limites estão documentados abaixo.
+
 ![Agendar uma consulta num horário livre, marcar uma sessão como realizada e receber a cobrança no financeiro](docs/screenshots/demo.gif)
 
 Agendar uma consulta num horário livre, marcar a sessão que já aconteceu como realizada e receber
@@ -57,10 +62,12 @@ Todas as telas abaixo usam dados fictícios.
 - **Isolamento por conta:** toda consulta ao banco é escopada pela conta da sessão autenticada; o front-end nunca informa a conta.
 - **Dados pessoais cifrados** no banco, com chaveiro de proteção de dados compartilhado via Redis.
 - **Separação entre dados administrativos e clínicos**, com perfis de acesso e trilha de auditoria.
-- **Sessão segura:** token de acesso só em memória e renovação por cookie protegido.
+- **Sessão:** token de acesso em memória, renovação por cookie protegido, invalidação entre abas e coordenação das operações que alteram o cookie.
 - **Agenda sem conflitos:** transação serializável contra marcações concorrentes, fuso horário por conta e regras de antecedência para cancelar e remarcar.
+- **Financeiro:** cobranças por sessão e mensalidades, recebimentos, reembolsos, recibos e exportação CSV. Datas respeitam o fuso do consultório; geração de mensalidades é coordenada entre instâncias.
+- **Lembretes com confirmação:** fila durável para WhatsApp via Evolution API v2 e marcador persistido antes do SMTP. Tentativas de resultado incerto exigem conferência, evitando repetição automática após uma queda.
 - **Acessível:** varredura automática WCAG A/AA nos temas claro e escuro, navegação por teclado e respeito a `prefers-reduced-motion`.
-- **Pronto para implantar:** Docker Compose para desenvolvimento e produção (HTTPS automático, e-mail e backup periódico).
+- **Infraestrutura documentada:** Docker Compose local e configuração de produção com HTTPS, e-mail e backup periódico; a implantação pública não foi homologada nesta revisão.
 
 ## Stack e organização
 
@@ -113,6 +120,19 @@ ativa estado de autenticação em memória. Esse estado se perde no reinício.
 As chaves locais de Data Protection ficam em `.psique-dev`, ignorada pelo Git;
 preserve essas chaves para conseguir ler dados já criptografados.
 
+## Evidências de verificação
+
+A revisão local de novembro de 2026 executou 247 testes do back-end sem falhas
+nem exclusões, com SQL Server, Redis e SMTP descartáveis, incluindo restauração.
+Também passaram 153 testes do front-end, build e lint. As jornadas no navegador
+foram verificadas em desktop e mobile, incluindo permissões, sessão entre abas,
+console, temas e larguras de 390 e 320 px.
+
+Esses números descrevem a execução local registrada; o selo CI acima mostra o
+resultado do GitHub Actions. Alguns testes de infraestrutura são opcionais
+quando suas variáveis não estão configuradas. Consulte os
+[resultados e limites da revisão](docs/05-operacao/NOVA_REVISAO_2026-11-01.md).
+
 ## Ambiente Docker local
 
 Requisitos: Docker com engine Linux ativo e Docker Compose.
@@ -142,7 +162,10 @@ conteúdo criptografado. Este Compose é para uso local em HTTP; para produção
 
 O [guia de implantação](docs/05-operacao/IMPLANTACAO.md) sobe o sistema num servidor Linux com
 `docker-compose.producao.yml`: HTTPS automático pelo Caddy, e-mail obrigatório, certificado para as
-chaves de cifra e backup periódico do banco e do chaveiro, com script de restauração testado.
+chaves de cifra e backup periódico do banco e do chaveiro. Backup e restauração
+foram exercitados em testes locais; o script completo de restauração de produção
+e a recuperação com TDE em outro servidor ainda exigem ensaio em homologação.
+Essa etapa não é necessária para a demonstração de portfólio.
 
 ## Verificações
 
@@ -190,6 +213,8 @@ o usuário troca a senha (as demais sessões são encerradas). O cadastro leva a
 descrevem o que o sistema faz hoje e são um ponto de partida: **revise com assessoria jurídica
 e defina o canal de contato antes de operar comercialmente.**
 E-mail exige SMTP configurado; WhatsApp exige Bridge externo para entrega.
+O transporte implementado é Evolution API v2. Sem uma instância conectada, o
+sistema não simula envio. Consulte o [guia da integração](docs/05-operacao/WHATSAPP_EVOLUTION.md).
 O bot é administrativo e encaminha mensagens sensíveis ao atendimento humano.
 
 Planos comerciais, cobrança SaaS, portal do paciente e integrações financeiras
@@ -204,6 +229,8 @@ recepcionista da conta (credenciais nele): entre com ela para ver que a recepç�
 
 Os GIFs deste arquivo saem de `npm run gravar:demo` (em `frontend/`, com API, front e a conta de
 demonstração ativos e o `ffmpeg` no PATH); `npm run gravar:demo -- prontuario` grava só um deles.
+As imagens estáticas podem ser atualizadas com `node scripts/capturar-telas.mjs`
+nas mesmas condições, sem precisar do ffmpeg.
 Os roteiros fazem ações de verdade na conta de demonstração e consomem sessões já passadas;
 `npm run seed:demo -- --renovar` repõe a agenda.
 

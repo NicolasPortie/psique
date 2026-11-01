@@ -63,25 +63,25 @@ function TabelaConsultas({ consultas, rotulo }: { consultas: Consulta[]; rotulo:
 }
 
 /** Próximas e anteriores, num só lugar: a linha do tempo administrativa do acompanhamento. */
-export function ConsultasDoPaciente({ pacienteId }: { pacienteId: string }) {
+export function ConsultasDoPaciente({ pacienteId, podeAgendar = true }: { pacienteId: string; podeAgendar?: boolean }) {
   const { consultas, isPending, error, refetch } = useConsultasDoPaciente(pacienteId);
   if (isPending) return <EsqueletoLinhas quantidade={5} />;
   if (error) return <EstadoErro mensagem={mensagemDeErro(error, 'Tente novamente em instantes.')} aoTentarNovamente={() => void refetch()} />;
 
   const agora = new Date();
-  const proximas = consultas.filter((consulta) => new Date(consulta.fimEm) > agora).sort((a, b) => a.inicioEm.localeCompare(b.inicioEm));
-  const anteriores = consultas.filter((consulta) => new Date(consulta.fimEm) <= agora).sort((a, b) => b.inicioEm.localeCompare(a.inicioEm));
+  const proximas = consultas.filter((consulta) => new Date(consulta.fimEm) > agora).sort((a, b) => Date.parse(a.inicioEm) - Date.parse(b.inicioEm));
+  const anteriores = consultas.filter((consulta) => new Date(consulta.fimEm) <= agora).sort((a, b) => Date.parse(b.inicioEm) - Date.parse(a.inicioEm));
 
   if (consultas.length === 0) {
     return (
       <EstadoVazio
         icone={CalendarPlus}
         titulo="Nenhuma consulta no último ano"
-        descricao="Agende a primeira consulta. Para acompanhamento contínuo, repita toda semana."
+        descricao={podeAgendar ? 'Agende a primeira consulta. Para acompanhamento contínuo, repita toda semana.' : 'Este paciente está inativo. Reative o cadastro para agendar novas consultas.'}
         acao={
-          <BotaoLink to={`/consultas/nova?pacienteId=${pacienteId}`} variante="secundario">
+          podeAgendar ? <BotaoLink to={`/consultas/nova?pacienteId=${pacienteId}`} variante="secundario">
             Agendar consulta
-          </BotaoLink>
+          </BotaoLink> : undefined
         }
       />
     );

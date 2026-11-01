@@ -5,10 +5,11 @@ using Psique.Api.Services.Seguranca;
 using Psique.Api.Shared.Enums;
 using Psique.Api.Shared.Excecoes;
 using Microsoft.EntityFrameworkCore;
+using Psique.Api.Services.Agenda;
 
 namespace Psique.Api.Services.Painel;
 
-public sealed class PainelService(AppDbContext dbContext) : IPainelService
+public sealed class PainelService(AppDbContext dbContext, TimeProvider? relogio = null) : IPainelService
 {
     private static readonly CultureInfo CulturaBrasil = CultureInfo.GetCultureInfo("pt-BR");
 
@@ -40,17 +41,18 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
         var podeMensagens = permissoes.Contains(PermissaoAcesso.Mensagens);
         var podeConversas = permissoes.Contains(PermissaoAcesso.Conversas);
 
-        var agora = DateTimeOffset.Now;
+        var fusoConta = await dbContext.ConfiguracoesAtendimento.AsNoTracking()
+            .Where(item => item.ContaPsicologoId == contaPsicologoId && item.Ativo)
+            .Select(item => item.FusoHorario).FirstOrDefaultAsync(cancellationToken);
+        var fuso = FusoHorarioConta.Resolver(fusoConta);
+        var agora = TimeZoneInfo.ConvertTime((relogio ?? TimeProvider.System).GetUtcNow(), fuso);
+        DateTimeOffset NoFuso(DateTime data) => new(data, fuso.GetUtcOffset(data));
         var hoje = DateOnly.FromDateTime(agora.DateTime);
-        var inicioHoje = new DateTimeOffset(
-            hoje.ToDateTime(TimeOnly.MinValue),
-            agora.Offset);
-        var fimHoje = inicioHoje.AddDays(1);
-        var inicioMes = new DateTimeOffset(
-            new DateTime(agora.Year, agora.Month, 1),
-            agora.Offset);
-        var fimMes = inicioMes.AddMonths(1);
-        var fimSemana = inicioHoje.AddDays(5);
+        var inicioHoje = NoFuso(hoje.ToDateTime(TimeOnly.MinValue));
+        var fimHoje = NoFuso(agora.Date.AddDays(1));
+        var inicioMes = NoFuso(new DateTime(agora.Year, agora.Month, 1));
+        var fimMes = NoFuso(new DateTime(agora.Year, agora.Month, 1).AddMonths(1));
+        var fimSemana = NoFuso(agora.Date.AddDays(5));
 
         var consultasHoje = await dbContext.Consultas
             .AsNoTracking()
@@ -65,7 +67,7 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
             .Select(consulta => new PainelConsultaHojeResponse(
                 consulta.Id,
                 consulta.Paciente.NomeCompleto,
-                consulta.InicioEm.ToLocalTime().ToString("HH:mm"),
+                TimeZoneInfo.ConvertTime(consulta.InicioEm, fuso).ToString("HH:mm"),
                 checked((int)Math.Round((consulta.FimEm - consulta.InicioEm).TotalMinutes)),
                 consulta.TipoAtendimento.Nome,
                 consulta.Modalidade.ToString(),
@@ -246,9 +248,11 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
             consultasHoje,
             await ObterVisaoSemanaAsync(
                 contaPsicologoId,
-                inicioHoje.AddDays(1),
+                fimHoje,
                 fimSemana,
                 podeAgenda,
+                fuso,
+                hoje,
                 cancellationToken),
             CriarPrioridades(
                 consultasAguardando,
@@ -309,6 +313,8 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
         DateTimeOffset inicio,
         DateTimeOffset fim,
         bool podeAgenda,
+        TimeZoneInfo fuso,
+        DateOnly hoje,
         CancellationToken cancellationToken)
     {
         var consultas = await dbContext.Consultas
@@ -320,22 +326,19 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                 consulta.InicioEm < fim &&
                 consulta.Status != StatusConsulta.Cancelada &&
                 consulta.Status != StatusConsulta.Remarcada)
-            .GroupBy(consulta => consulta.InicioEm.Date)
-            .Select(grupo => new
-            {
-                Data = grupo.Key,
-                Total = grupo.Count()
-            })
+            .Select(consulta => consulta.InicioEm)
             .ToListAsync(cancellationToken);
+
+        var totaisPorDia = consultas
+            .GroupBy(item => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(item, fuso).Date))
+            .ToDictionary(grupo => grupo.Key, grupo => grupo.Count());
 
         return Enumerable.Range(0, 4)
             .Select(indice =>
             {
                 var data = DateOnly.FromDateTime(inicio.AddDays(indice).Date);
-                var total = consultas
-                    .SingleOrDefault(item => DateOnly.FromDateTime(item.Data) == data)
-                    ?.Total ?? 0;
-                return new PainelDiaSemanaResponse(data, ObterRotuloDia(data), total);
+                var total = totaisPorDia.GetValueOrDefault(data);
+                return new PainelDiaSemanaResponse(data, ObterRotuloDia(data, hoje), total);
             })
             .ToArray();
     }
@@ -440,9 +443,8 @@ public sealed class PainelService(AppDbContext dbContext) : IPainelService
                 !string.Equals(parte, "Dra", StringComparison.OrdinalIgnoreCase))
             ?? nomeCompleto;
 
-    private static string ObterRotuloDia(DateOnly data)
+    private static string ObterRotuloDia(DateOnly data, DateOnly hoje)
     {
-        var hoje = DateOnly.FromDateTime(DateTimeOffset.Now.DateTime);
         if (data == hoje.AddDays(1))
         {
             return "Amanhã";

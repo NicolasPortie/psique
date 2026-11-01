@@ -132,19 +132,16 @@ public sealed class EstadoAutenticacaoRedis(
     {
         cancellationToken.ThrowIfCancellationRequested();
         var chaveUsuario = ChaveRefreshUsuario(usuarioId);
-        var tokens = await _database.SetMembersAsync(chaveUsuario);
+        const string script = """
+            local tokens = redis.call('SMEMBERS', KEYS[1])
+            for _, token in ipairs(tokens) do
+                redis.call('DEL', ARGV[1] .. token)
+            end
+            redis.call('DEL', KEYS[1])
+            return #tokens
+            """;
+        await _database.ScriptEvaluateAsync(script, [chaveUsuario], [$"{_prefixo}auth:refresh:"]);
 
-        if (tokens.Length == 0)
-        {
-            await _database.KeyDeleteAsync(chaveUsuario);
-            return;
-        }
-
-        var chaves = tokens
-            .Select(token => (RedisKey)ChaveRefresh(token.ToString()))
-            .Append(chaveUsuario)
-            .ToArray();
-        await _database.KeyDeleteAsync(chaves);
     }
 
     private async Task<string?> ObterERemoverAsync(

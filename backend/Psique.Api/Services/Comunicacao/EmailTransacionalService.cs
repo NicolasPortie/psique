@@ -8,7 +8,8 @@ namespace Psique.Api.Services.Comunicacao;
 
 public sealed class EmailTransacionalService(
     IOptions<EmailConfiguracao> configuracao,
-    ILogger<EmailTransacionalService> logger)
+    ILogger<EmailTransacionalService> logger,
+    Func<SmtpClient>? criarCliente = null)
     : IEmailTransacionalService
 {
     private readonly EmailConfiguracao _configuracao = configuracao.Value;
@@ -88,7 +89,8 @@ public sealed class EmailTransacionalService(
 
         try
         {
-            using var cliente = new SmtpClient();
+            using var cliente = criarCliente?.Invoke() ?? new SmtpClient();
+            cliente.Timeout = 10000;
             var opcaoSsl = _configuracao.UsarSsl
                 ? SecureSocketOptions.SslOnConnect
                 : SecureSocketOptions.StartTls;
@@ -113,7 +115,7 @@ public sealed class EmailTransacionalService(
         }
         catch (Exception excecao)
         {
-            logger.LogError(excecao, "Falha no envio de e-mail transacional.");
+            logger.LogError("Falha no envio de e-mail transacional ({Tipo}).", excecao.GetType().Name);
             return false;
         }
     }
