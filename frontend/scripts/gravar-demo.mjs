@@ -410,6 +410,9 @@ async function celular() {
 
   await pagina.getByRole('heading', { name: /^(Bom dia|Boa tarde|Boa noite)/ }).waitFor();
   await pagina.getByText('Agenda de hoje', { exact: true }).waitFor();
+  await pagina.evaluate(() => Promise.all(document.getAnimations()
+    .filter(animacao => animacao.effect?.getTiming().iterations !== Infinity)
+    .map(animacao => animacao.finished.catch(() => undefined))));
   await gravar(sessao, 'celular', { largura: 360, cores: 160 }, async (ator) => {
     await ator.pausa(1500);
     await pagina.evaluate(() => window.scrollBy({ top: 420, behavior: 'smooth' }));
