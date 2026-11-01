@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Os horários dos cenários usam o fuso padrão das contas semeadas. O runner
+// Linux usa UTC; sem isto, 09h do teste vira 06h no consultório.
+process.env.TZ = 'America/Sao_Paulo';
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -10,6 +14,7 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: [['list']],
   use: {
+    timezoneId: 'America/Sao_Paulo',
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:4200',
 
 

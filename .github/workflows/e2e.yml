@@ -1,8 +1,7 @@
 name: e2e
 
 # Execução manual (Actions > e2e > Run workflow). Os helpers criam contas pelo fluxo de código de e-mail
-# (código fixo em Development). Falta revalidar a suíte inteira contra o limite de códigos por IP antes de
-# ela voltar a rodar em todo push.
+# (código fixo em Development). Os cenários e o navegador usam explicitamente o fuso das contas de teste.
 on:
   workflow_dispatch:
 
